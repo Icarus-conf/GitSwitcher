@@ -1,0 +1,126 @@
+name: Release macOS build
+
+# Cutting a release is deliberate, so this runs on a version tag rather than on
+# every push to main. workflow_dispatch is there to re-run a build without
+# moving a tag.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build and release (e.g. v0.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # Pinned: an unexpected Flutter upgrade should not silently change
+          # what ships.
+          flutter-version: '3.41.2'
+          channel: stable
+          cache: true
+
+      - name: Resolve version
+        id: version
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          # pubspec's version is a placeholder; the tag is the real one. Strip
+          # the leading v so it is a valid Dart build name.
+          BUILD_NAME="${TAG#v}"
+          if ! echo "$BUILD_NAME" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Tag '$TAG' is not vMAJOR.MINOR.PATCH"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "build_name=$BUILD_NAME" >> "$GITHUB_OUTPUT"
+          echo "Building $TAG (version $BUILD_NAME)"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      # A release that fails its own test suite should not exist. This also
+      # catches a vendored tray_manager that lost its patch, which otherwise
+      # ships silently as an app with no avatars.
+      - name: Test
+        run: flutter test
+
+      # The tag is the source of truth for the version, so the app reports the
+      # same number the release is published under.
+      - name: Build macOS release
+        run: |
+          flutter build macos --release \
+            --build-name="${{ steps.version.outputs.build_name }}" \
+            --build-number="${{ github.run_number }}"
+
+      - name: Verify the bundle carries the tag's version
+        run: |
+          PLIST="build/macos/Build/Products/Release/GitSwitcher.app/Contents/Info.plist"
+          GOT=$(plutil -extract CFBundleShortVersionString raw "$PLIST")
+          WANT="${{ steps.version.outputs.build_name }}"
+          echo "bundle version: $GOT (expected $WANT)"
+          [ "$GOT" = "$WANT" ] || { echo "::error::version mismatch"; exit 1; }
+
+      - name: Package
+        id: package
+        run: |
+          APP="build/macos/Build/Products/Release/GitSwitcher.app"
+          test -d "$APP" || { echo "::error::$APP not found"; exit 1; }
+
+          NAME="GitSwitcher-${{ steps.version.outputs.tag }}-macos.zip"
+          # ditto, not zip: it preserves the bundle's symlinks and resource
+          # forks, which a plain zip corrupts.
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$NAME"
+
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "Packaged $NAME ($(du -h "$NAME" | cut -f1))"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          NAME="${{ steps.package.outputs.name }}"
+
+          NOTES=$(cat <<'EOF'
+          A menu bar app for switching GitHub accounts.
+
+          ## Install
+
+          1. Download the zip below and unzip it.
+          2. Move `GitSwitcher.app` to `/Applications`.
+          3. **Right-click the app and choose Open** the first time.
+
+          That third step is required because this build is not signed with an
+          Apple Developer certificate. Double-clicking shows a Gatekeeper
+          warning with no way past it; right-click → Open gives you the option
+          to run it anyway. macOS only asks once.
+
+          ## Requirements
+
+          The [GitHub CLI](https://cli.github.com), signed in to each account
+          you want to switch between (`gh auth login`).
+          EOF
+          )
+
+          # Re-running a build for an existing tag should update it, not fail.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$NAME" --clobber
+          else
+            gh release create "$TAG" "$NAME" \
+              --title "GitSwitcher $TAG" \
+              --notes "$NOTES"
+          fi
