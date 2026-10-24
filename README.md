@@ -21,8 +21,7 @@ Step 3 is needed because the app isn't signed with an Apple Developer
 certificate. Double-clicking shows a warning with no way past it; right-click →
 Open gives you the choice. macOS only asks once.
 
-To keep it running after a restart, add it in
-System Settings → General → Login Items.
+To start it automatically, turn on **Open at login** in Settings.
 
 ## Setup
 

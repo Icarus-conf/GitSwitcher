@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../app_services.dart';
+import '../platform/launch_at_login.dart';
 import '../models/account.dart';
 import '../models/switch_result.dart';
 import '../services/account_resolver.dart';
@@ -240,6 +242,10 @@ class _SettingsScreenState extends State<SettingsScreen> with WindowListener {
           padding: const EdgeInsets.only(left: 4, bottom: 10),
           child: Text('AUTOMATION', style: Glass.eyebrow(context)),
         ),
+        _LaunchAtLoginSlab(
+          onError: (message) => _tell(message, isError: true),
+        ),
+        const SizedBox(height: Glass.gutter),
         AutoSwitchSection(
           services: widget.services,
           accounts: _accounts.map((r) => r.account).toList(),
@@ -247,6 +253,64 @@ class _SettingsScreenState extends State<SettingsScreen> with WindowListener {
               _tell(message, isError: isError),
         ),
       ],
+    );
+  }
+}
+
+class _LaunchAtLoginSlab extends StatefulWidget {
+  const _LaunchAtLoginSlab({required this.onError});
+
+  final void Function(String message) onError;
+
+  @override
+  State<_LaunchAtLoginSlab> createState() => _LaunchAtLoginSlabState();
+}
+
+class _LaunchAtLoginSlabState extends State<_LaunchAtLoginSlab> {
+  bool? _enabled;
+
+  @override
+  void initState() {
+    super.initState();
+    LaunchAtLogin.isEnabled()
+        .then((v) => mounted ? setState(() => _enabled = v) : null)
+        .catchError((_) => null);
+  }
+
+  Future<void> _set(bool value) async {
+    try {
+      final result = await LaunchAtLogin.setEnabled(value);
+      if (mounted) setState(() => _enabled = result);
+    } on PlatformException catch (e) {
+      widget.onError('Could not change Login Items: ${e.message}');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassSlab(
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Open at login', style: Glass.display(context)),
+                const SizedBox(height: 3),
+                Text(
+                  'Starts GitSwitcher when you log in or restart your Mac.',
+                  style: Glass.body(context, size: 12),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: _enabled ?? false,
+            onChanged: _enabled == null ? null : _set,
+            activeThumbColor: Glass.live,
+          ),
+        ],
+      ),
     );
   }
 }
