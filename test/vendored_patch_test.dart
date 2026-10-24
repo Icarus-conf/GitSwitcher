@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// Guards the patch applied to the vendored tray_manager.
 ///
-/// Upstream drops `icon` and `sublabel` on macOS menu items. Losing the patch —
+/// Upstream drops `icon` on macOS menu items. Losing the patch —
 /// by upgrading the package, or re-vendoring without running
 /// `tool/vendor_tray_manager.sh` — would remove account avatars with no error
 /// anywhere: the app would build, run, and just quietly look wrong. These tests
@@ -41,13 +41,16 @@ void main() {
     });
 
     test('renders the item icon, which upstream ignores', () {
-      expect(source, contains('menuItem.image'));
+      expect(source, contains(r'itemDict["icon"]'));
       expect(source, contains('circularImage'));
     });
 
-    test('renders the sublabel, which upstream ignores', () {
+    test('draws the avatar inside the title, not in the image slot', () {
+      // macOS 27 does not draw NSMenuItem.image in a status-item menu at all,
+      // so an avatar set there is silently invisible.
+      expect(source, contains('NSTextAttachment'));
       expect(source, contains('menuItem.attributedTitle'));
-      expect(source, contains(r'itemDict["sublabel"]'));
+      expect(source, isNot(contains('menuItem.image =')));
     });
 
     test('avatars are not template images', () {

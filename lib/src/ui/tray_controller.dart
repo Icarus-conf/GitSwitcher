@@ -120,7 +120,6 @@ class TrayController with TrayListener {
         items.add(MenuItem.checkbox(
           key: entry.account.ghUsername,
           label: entry.account.displayName,
-          sublabel: note ?? profile?.profile.login,
           toolTip: note,
           icon: profile?.avatarPath,
           checked: entry.isActive,

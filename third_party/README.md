@@ -6,20 +6,17 @@ Vendored from pub.dev and wired in through `dependency_overrides` in the root
 `pubspec.yaml`.
 
 **Why:** upstream's macOS menu builder
-(`macos/tray_manager/Classes/TrayMenu.swift`) reads only `id`, `type`, `label`,
-`toolTip`, `checked` and `disabled` from each menu item. It silently drops both
-`icon` and `sublabel`, even though the Dart-side `MenuItem` class accepts them.
-That makes account avatars impossible and hides the per-account setup hint.
+(`macos/tray_manager/Classes/TrayMenu.swift`) ignores each menu item's `icon`,
+even though the Dart-side `MenuItem` accepts it. That makes account avatars
+impossible.
 
 **The patch** is confined to `TrayMenu.swift` and is marked inline with
-`// GitSwitcher patch:` comments. It adds two things:
+`// GitSwitcher patch:` comments. It loads `icon`, masks it to a circle, and
+draws it at the start of the item's title as a text attachment.
 
-- `icon` is loaded into `menuItem.image`, masked to a 16pt circle with
-  `isTemplate = false` — avatars are photographs, and a template image would be
-  flattened into a solid silhouette. The mask is drawn through
-  `NSImage(size:flipped:drawingHandler:)` so AppKit rasterises at the display's
-  scale and the result stays sharp on Retina.
-- `sublabel` becomes a second, smaller, dimmed line via `attributedTitle`.
+It goes in the title rather than `menuItem.image` on purpose: macOS 27 does not
+draw `NSMenuItem.image` in a status-item menu at all — not even system symbols —
+so an avatar there is silently invisible.
 
 Nothing else is modified.
 
