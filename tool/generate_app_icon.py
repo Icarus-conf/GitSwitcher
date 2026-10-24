@@ -1,106 +1,104 @@
 """Generates the macOS app icon set into macos/Runner/Assets.xcassets.
 
-Two arrows circling each other: a swap, not a transfer. The two dots are the
-identities being exchanged, in the same blue and purple the app uses for
-accounts — the left one solid because one identity is always the active one.
+Janus: one head, two faces looking opposite ways — one person, a work identity
+and a personal one. Drawn as SVG and rasterised with Quick Look (macOS only).
 
-Each size is drawn parametrically rather than downscaled from a single master.
-A stroke that reads at 1024px is sub-pixel at 16px, so the small renditions get
-proportionally heavier strokes and drop the dots, which would otherwise merge
-into noise.
+Sizes 16 and 32 use a simplified variant: the gold ring turns to noise and a
+thin seam vanishes, leaving a plain head, so the small variant drops the ring
+and widens the seam that makes it read as two faces.
 """
 
-import math
 import os
+import subprocess
+import tempfile
 
 from PIL import Image, ImageDraw
 
 OUT = "macos/Runner/Assets.xcassets/AppIcon.appiconset"
 SIZES = [16, 32, 64, 128, 256, 512, 1024]
-SUPERSAMPLE = 4
+S = 1024
 
-INK_TOP = (22, 27, 34)      # GitHub #161B22
-INK_BOT = (8, 11, 15)
-BLUE = (88, 166, 255)
-PURPLE = (191, 90, 242)
+# Left-facing profile; the right face is its mirror across x = 512.
+FACE = ("M 512 262 C 440 262 382 292 360 352 C 348 388 350 410 346 432 "
+        "C 342 450 330 462 318 486 L 294 534 C 290 544 300 550 316 552 "
+        "C 322 558 320 568 314 574 C 310 582 316 588 322 592 C 316 600 318 610 326 614 "
+        "C 328 642 334 666 352 682 C 380 706 420 708 438 714 L 446 792 L 512 792 Z")
+EYE = "M 360 450 Q 378 438 396 450 Q 378 460 360 450 Z"
 
 
-def render(size: int) -> Image.Image:
-    small = size <= 32
-    s = size * SUPERSAMPLE
+def mirror(path):
+    out, is_x = [], True
+    for tok in path.split():
+        try:
+            v = float(tok)
+        except ValueError:
+            out.append(tok)
+            is_x = True
+            continue
+        out.append(f"{S - v:g}" if is_x else f"{v:g}")
+        is_x = not is_x
+    return " ".join(out)
 
-    # Tiny icons need to fill more of the tile and carry heavier strokes.
-    inset = s * (0.06 if small else 0.088)
-    radius = s * (0.20 if small else 0.225)
-    stroke = s * (0.085 if small else 0.053)
-    ring = s * 0.205
 
-    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+def svg(small):
+    ring = "" if small else (
+        '<circle cx="512" cy="530" r="356" fill="none" stroke="#f2c66d" '
+        'stroke-opacity=".45" stroke-width="6"/>')
+    seam = 28 if small else 10
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{S}" height="{S}" viewBox="0 0 {S} {S}">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#3b4fe6"/><stop offset="1" stop-color="#141c6e"/></linearGradient>
+  <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#fff" stop-opacity=".18"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/></linearGradient>
+  <linearGradient id="marble" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#fbf6ee"/><stop offset="1" stop-color="#d8cab6"/></linearGradient>
+  <filter id="drop" x="-40%" y="-40%" width="180%" height="180%">
+    <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity=".38"/></filter>
+</defs>
+<rect width="{S}" height="{S}" fill="url(#bg)"/>
+{ring}
+<g filter="url(#drop)">
+  <path d="{FACE}" fill="url(#marble)"/>
+  <path d="{mirror(FACE)}" fill="url(#marble)"/>
+  <rect x="396" y="792" width="232" height="40" rx="12" fill="#cbb99f"/>
+</g>
+<line x1="512" y1="270" x2="512" y2="790" stroke="#2236b8" stroke-width="{seam}"/>
+<path d="{EYE}" fill="#1e2a8a"/><path d="{mirror(EYE)}" fill="#1e2a8a"/>
+<rect width="{S}" height="{S}" fill="url(#sheen)"/>
+</svg>"""
 
-    grad = Image.new("RGBA", (s, s))
-    g = ImageDraw.Draw(grad)
-    for y in range(s):
-        t = y / s
-        g.line(
-            [(0, y), (s, y)],
-            fill=tuple(
-                int(a + (b - a) * t) for a, b in zip(INK_TOP, INK_BOT)
-            ) + (255,),
-        )
-    mask = Image.new("L", (s, s), 0)
-    ImageDraw.Draw(mask).rounded_rectangle(
-        [inset, inset, s - inset, s - inset], radius=radius, fill=255
-    )
-    img.paste(grad, (0, 0), mask)
 
-    d = ImageDraw.Draw(img)
-    d.rounded_rectangle(
-        [inset, inset, s - inset, s - inset],
-        radius=radius,
-        outline=(255, 255, 255, 34),
-        width=max(1, int(s * 0.003)),
-    )
+def rasterise(svg_text, workdir, name):
+    src = os.path.join(workdir, f"{name}.svg")
+    with open(src, "w") as f:
+        f.write(svg_text)
+    subprocess.run(["qlmanage", "-t", "-s", str(S), "-o", workdir, src],
+                   check=True, capture_output=True)
+    return Image.open(f"{src}.png").convert("RGBA").resize((S, S), Image.LANCZOS)
 
-    cx = cy = s / 2
-    box = [cx - ring, cy - ring, cx + ring, cy + ring]
-    d.arc(box, 200, 340, fill=BLUE, width=int(stroke))
-    d.arc(box, 20, 160, fill=PURPLE, width=int(stroke))
 
-    def head(angle_deg: float, colour, length: float):
-        a = math.radians(angle_deg)
-        px, py = cx + ring * math.cos(a), cy + ring * math.sin(a)
-        t = a + math.pi / 2
-        tip = (px + length * math.cos(t), py + length * math.sin(t))
-        n = t + math.pi / 2
-        w = length * 0.66
-        d.polygon(
-            [
-                tip,
-                (px + w * math.cos(n), py + w * math.sin(n)),
-                (px - w * math.cos(n), py - w * math.sin(n)),
-            ],
-            fill=colour,
-        )
+def tile(src):
+    """Masks a full-bleed render into the macOS icon shape, with a hairline edge."""
+    big = 4 * S
+    inset, radius = big * 0.088, big * 0.225
+    box = [inset, inset, big - inset, big - inset]
+    mask = Image.new("L", (big, big), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(box, radius=radius, fill=255)
+    out = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    out.paste(src, (0, 0), mask.resize((S, S), Image.LANCZOS))
+    edge = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+    ImageDraw.Draw(edge).rounded_rectangle(box, radius=radius, outline=(255, 255, 255, 70), width=10)
+    out.alpha_composite(edge.resize((S, S), Image.LANCZOS))
+    return out
 
-    head_len = stroke * (1.5 if small else 1.45)
-    head(340, BLUE, head_len)
-    head(160, PURPLE, head_len)
 
-    # The identities being swapped. Omitted on tiny renditions, where they
-    # would blur into the arcs instead of reading as two things.
-    if not small:
-        r = s * 0.033
-        gap = s * 0.082
-        d.ellipse([cx - gap - r, cy - r, cx - gap + r, cy + r], fill=BLUE)
-        d.ellipse(
-            [cx + gap - r, cy - r, cx + gap + r, cy + r], fill=(*PURPLE, 170)
-        )
-
-    return img.resize((size, size), Image.LANCZOS)
-
+with tempfile.TemporaryDirectory() as tmp:
+    full = tile(rasterise(svg(small=False), tmp, "full"))
+    small = tile(rasterise(svg(small=True), tmp, "small"))
 
 os.makedirs(OUT, exist_ok=True)
 for size in SIZES:
-    render(size).save(f"{OUT}/app_icon_{size}.png")
+    (small if size <= 32 else full).resize((size, size), Image.LANCZOS).save(f"{OUT}/app_icon_{size}.png")
     print(f"  app_icon_{size}.png")
 print("app icon set written")
