@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:macos_window_utils/macos_window_utils.dart';
 import 'package:window_manager/window_manager.dart';
@@ -43,6 +45,16 @@ Future<void> main() async {
   final services = await AppServices.create();
   // Picks up rules saved before folder switching moved to git includeIf.
   await services.syncGitConfig();
+  if (services.removedLegacyHook) {
+    unawaited(services.notifier.show(
+      title: 'Folder rules now work everywhere',
+      body: 'GitSwitcher uses git itself for folders, in every terminal and '
+          'editor. Its old hook was removed from ~/.zshrc.',
+    ));
+  }
+  // Keeps a gh this app installed current. Failures are silent: an old gh
+  // still works, and the next launch tries again.
+  unawaited(services.tools.updateGh().catchError((_) => null));
   final tray = TrayController(services);
   await tray.start();
 

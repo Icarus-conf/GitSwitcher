@@ -49,7 +49,15 @@ class GhLoginSession {
   /// *replaces* its token rather than extending it. Without asking for this
   /// explicitly, logging in again quietly strips the caller's ability to push
   /// changes under `.github/workflows/`.
-  static const List<String> extraScopes = ['workflow'];
+  ///
+  /// The two key scopes let "Create SSH key" add the new key to the account
+  /// for pushing and for signing. Without them it falls back to copying the
+  /// key and opening GitHub's page for the user to paste it.
+  static const List<String> extraScopes = [
+    'workflow',
+    'admin:public_key',
+    'admin:ssh_signing_key',
+  ];
 
   /// Starts the login flow and completes when gh exits.
   ///

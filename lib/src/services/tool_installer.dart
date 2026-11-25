@@ -123,6 +123,34 @@ class ToolInstaller {
     }
   }
 
+  /// Re-downloads the gh this app installed when a newer release exists.
+  /// Returns the new tag, or null when there was nothing to do. A gh the user
+  /// installed themselves is theirs to update and is never touched.
+  ///
+  /// ponytail: checked once per launch; add a timer if people leave the app
+  /// running for weeks.
+  Future<String?> updateGh() async {
+    final ours = '${_binDir.path}/gh';
+    if (!_exists(ours)) return null;
+
+    final Map<String, dynamic> release;
+    try {
+      release = jsonDecode(utf8.decode(await _fetch(latestRelease)))
+          as Map<String, dynamic>;
+    } catch (_) {
+      return null; // Offline is normal; try again next launch.
+    }
+    final latest = release['tag_name'] as String? ?? '';
+    // `gh version 2.89.0 (2026-03-26)` → v2.89.0
+    final current = (await _runner.run(ours, ['--version']))
+        .stdout
+        .split(' ')
+        .elementAtOrNull(2);
+    if (latest.isEmpty || current == null || 'v$current' == latest) return null;
+
+    return installGh();
+  }
+
   static Future<List<int>> _httpGet(Uri url) async {
     final client = HttpClient()..userAgent = 'GitSwitcher';
     try {

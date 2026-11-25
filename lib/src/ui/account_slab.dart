@@ -18,6 +18,7 @@ class AccountSlab extends StatefulWidget {
     required this.onSave,
     required this.onApplyToRepo,
     required this.onTestSsh,
+    required this.onCreateKey,
   });
 
   final ResolvedAccount resolved;
@@ -26,6 +27,7 @@ class AccountSlab extends StatefulWidget {
   final Future<void> Function(Account) onSave;
   final Future<void> Function(Account) onApplyToRepo;
   final Future<void> Function(Account) onTestSsh;
+  final Future<void> Function(Account) onCreateKey;
 
   @override
   State<AccountSlab> createState() => _AccountSlabState();
@@ -39,6 +41,7 @@ class _AccountSlabState extends State<AccountSlab> {
   late bool _signCommits;
   bool _editing = false;
   bool _testing = false;
+  bool _creating = false;
 
   @override
   void initState() {
@@ -69,6 +72,15 @@ class _AccountSlabState extends State<AccountSlab> {
       signCommits: _signCommits,
     ));
     if (mounted) setState(() => _editing = false);
+  }
+
+  Future<void> _handleCreateKey() async {
+    setState(() => _creating = true);
+    try {
+      await widget.onCreateKey(widget.resolved.account);
+    } finally {
+      if (mounted) setState(() => _creating = false);
+    }
   }
 
   Future<void> _handleTest() async {
@@ -178,6 +190,16 @@ class _AccountSlabState extends State<AccountSlab> {
                 icon: Icons.folder_outlined,
                 onPressed: () => widget.onApplyToRepo(account),
               ),
+              if (account.sshKeyPath.isEmpty &&
+                  !_editing &&
+                  resolved.isLoggedIn) ...[
+                const SizedBox(width: 8),
+                _QuietButton(
+                  label: _creating ? 'Creating…' : 'Create SSH key',
+                  icon: Icons.vpn_key_outlined,
+                  onPressed: _creating ? null : _handleCreateKey,
+                ),
+              ],
               if (account.sshKeyPath.isNotEmpty && !_editing) ...[
                 const SizedBox(width: 8),
                 _QuietButton(
