@@ -90,7 +90,8 @@ class _SettingsScreenState extends State<SettingsScreen> with WindowListener {
         .refresh(resolved.map((r) => r.account.ghUsername)));
   }
 
-  Future<void> _save(Account updated) async {
+  /// [message] replaces the usual "Saved" note, for callers with more to say.
+  Future<void> _save(Account updated, {String? message}) async {
     // Nothing here may throw silently: this runs from a button handler, where
     // an unhandled exception would leave the user staring at a Save button
     // that appears to do nothing at all.
@@ -114,7 +115,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WindowListener {
         _tell('Saved, but ~/.gitconfig was not updated: ${step.message}',
             isError: true);
       } else {
-        _tell('Saved ${updated.displayName}');
+        _tell(message ?? 'Saved ${updated.displayName}');
       }
     } catch (error) {
       if (!mounted) return;
@@ -160,6 +161,30 @@ class _SettingsScreenState extends State<SettingsScreen> with WindowListener {
       _tell('$folder now commits as ${account.displayName}');
     } else {
       _tell(step.message ?? 'Could not set the repo identity', isError: true);
+    }
+  }
+
+  Future<void> _createKey(Account account) async {
+    try {
+      final key = await widget.services.keys.create(account);
+      if (key.uploaded) {
+        await _save(
+          account.copyWith(sshKeyPath: key.path, signCommits: true),
+          message: 'Key created and added to GitHub as ${account.ghUsername}, '
+              'for pushing and signing.',
+        );
+        return;
+      }
+      await _save(
+        account.copyWith(sshKeyPath: key.path),
+        message: 'Key created and copied (${key.problem}). On the GitHub page, '
+            'signed in as ${account.ghUsername}, paste it as an Authentication '
+            'key — and again as a Signing key to sign commits.',
+      );
+      await Clipboard.setData(ClipboardData(text: key.publicKey));
+      await widget.services.keys.openAddKeyPage();
+    } catch (error) {
+      if (mounted) _tell('Could not create a key: $error', isError: true);
     }
   }
 
@@ -268,6 +293,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WindowListener {
             onSave: _save,
             onApplyToRepo: _applyToRepo,
             onTestSsh: _testSsh,
+            onCreateKey: _createKey,
           ),
           const SizedBox(height: Glass.gutter),
         ],

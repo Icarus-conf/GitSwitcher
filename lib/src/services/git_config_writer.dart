@@ -30,11 +30,17 @@ class GitConfigWriter {
     required File gitconfig,
     required Directory directory,
     required String home,
+    Future<String?> Function()? ghPath,
     BackupWriter backups = const BackupWriter(),
   })  : _gitconfig = gitconfig,
         _directory = directory,
         _home = home,
+        _ghPath = ghPath ?? (() async => null),
         _backups = backups;
+
+  /// gh's absolute path, or null when it is not installed. Folder files use it
+  /// to fetch the right account's token for HTTPS remotes.
+  final Future<String?> Function() _ghPath;
 
   final File _gitconfig;
   final Directory _directory;
@@ -61,6 +67,9 @@ class GitConfigWriter {
   Future<StepResult> sync(AppConfig config, String? activeUsername) async {
     try {
       final byLogin = {for (final a in config.accounts) a.ghUsername: a};
+      final gh = config.autoSwitchEnabled && config.rules.isNotEmpty
+          ? await _ghPath()
+          : null;
       final anySigns = config.accounts.any(_signs);
 
       final rules = config.autoSwitchEnabled
@@ -89,7 +98,7 @@ class GitConfigWriter {
         if (used.add(login)) {
           await _writeIfChanged(
             _accountFile(login),
-            folderLines(account, anySigns: anySigns),
+            folderLines(account, anySigns: anySigns, gh: gh),
           );
         }
         final dir = await _realPath(_trimSlash(expandHome(rule.pathPrefix)));
@@ -121,9 +130,22 @@ class GitConfigWriter {
   ///
   /// When any account signs, a non-signing one turns signing off, so its
   /// folders never sign with another account's key.
-  List<String> folderLines(Account account, {required bool anySigns}) {
+  List<String> folderLines(
+    Account account, {
+    required bool anySigns,
+    String? gh,
+  }) {
     final key = expandHome(account.sshKeyPath);
     return [
+      // HTTPS remotes. gh's own credential helper only ever answers for the
+      // account active in the menu, so each folder asks gh for its own
+      // account's token. The empty helper first clears every helper set
+      // earlier (gh's, osxkeychain), or one of those would answer first.
+      if (gh != null) ...[
+        '[credential "https://github.com"]',
+        '\thelper =',
+        '\thelper = ${_quote(_credentialHelper(gh, account.ghUsername))}',
+      ],
       if (account.gitName.isNotEmpty && account.gitEmail.isNotEmpty) ...[
         '[user]',
         '\tname = ${_quote(account.gitName)}',
@@ -141,6 +163,14 @@ class GitConfigWriter {
       else if (anySigns) ...['[commit]', '\tgpgsign = false'],
     ];
   }
+
+  /// A git credential helper: on `get`, prints this login's token from gh.
+  /// Prints nothing when gh has no token for it, so git reports the failure.
+  static String _credentialHelper(String gh, String login) =>
+      '!f() { test "\$1" = get || exit 0; '
+      't=\$(${_shellQuote(gh)} auth token --hostname github.com '
+      '--user ${_shellQuote(login)} 2>/dev/null) || exit 0; '
+      'echo username=${_shellQuote(login)}; echo "password=\$t"; }; f';
 
   List<String> _signingLines(Account account) => [
         '[user]',
