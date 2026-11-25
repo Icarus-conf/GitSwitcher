@@ -60,7 +60,18 @@ void main() {
     });
   });
 
-  test('the re-vendoring script is executable', () {
+  test('the Windows notification patch is still applied', () {
+    // Without it, every notification on Windows silently does nothing.
+    final plugin =
+        File('third_party/tray_manager/windows/tray_manager_plugin.cpp')
+            .readAsStringSync();
+    expect(plugin, contains('// GitSwitcher patch:'));
+    expect(plugin, contains('compare("showBalloon")'));
+    expect(plugin, contains('NIF_INFO'));
+  });
+
+  test('the re-vendoring script is executable',
+      skip: Platform.isWindows ? 'Windows has no execute bit' : null, () {
     final script = File('tool/vendor_tray_manager.sh');
     expect(script.existsSync(), isTrue);
     expect(

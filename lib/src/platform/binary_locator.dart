@@ -1,15 +1,9 @@
 import 'dart:io';
 
+import 'host.dart';
 import 'process_runner.dart';
 
 typedef PathExists = bool Function(String path);
-
-/// Where CLI tools normally live on macOS, in probe order.
-const List<String> kBinarySearchDirs = [
-  '/opt/homebrew/bin',
-  '/usr/local/bin',
-  '/usr/bin',
-];
 
 class BinaryNotFoundException implements Exception {
   BinaryNotFoundException(this.name);
@@ -30,10 +24,10 @@ class BinaryNotFoundException implements Exception {
 class BinaryLocator {
   BinaryLocator({
     required ProcessRunner runner,
-    List<String> searchDirs = kBinarySearchDirs,
+    List<String>? searchDirs,
     PathExists exists = _defaultExists,
   })  : _runner = runner,
-        _searchDirs = searchDirs,
+        _searchDirs = searchDirs ?? Host.current.binarySearchDirs,
         _exists = exists;
 
   final ProcessRunner _runner;
@@ -48,16 +42,19 @@ class BinaryLocator {
     final cached = _cache[name];
     if (cached != null) return cached;
 
+    final host = Host.current;
     for (final dir in _searchDirs) {
-      final candidate = '$dir/$name';
+      final candidate = host.join(dir, host.exe(name));
       if (_exists(candidate)) {
         _cache[name] = candidate;
         return candidate;
       }
     }
 
-    final result = await _runner.run('/bin/zsh', ['-lc', 'which $name']);
-    final resolved = result.stdout.trim();
+    final (which, args) = host.which(name);
+    final result = await _runner.run(which, args);
+    // where.exe lists every match, one per line; the first is what runs.
+    final resolved = result.stdout.trim().split('\n').first.trim();
     if (result.ok && resolved.isNotEmpty && _exists(resolved)) {
       _cache[name] = resolved;
       return resolved;

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../app_services.dart';
+import '../platform/host.dart';
 import '../platform/launch_at_login.dart';
 import '../models/account.dart';
 import '../models/switch_result.dart';
@@ -211,7 +212,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WindowListener {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      backgroundColor: Glass.windowBackground(Theme.of(context).brightness),
       body: Column(
         children: [
           // The title bar is hidden, so this strip both labels the window and
@@ -220,7 +221,9 @@ class _SettingsScreenState extends State<SettingsScreen> with WindowListener {
             child: SizedBox(
               height: 52,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(84, 0, 18, 0),
+                // Room for macOS's traffic lights, which sit over this strip.
+                padding: EdgeInsets.fromLTRB(
+                    Host.current.isMacOS ? 84 : 18, 0, 18, 0),
                 child: Row(
                   children: [
                     Text('GITSWITCHER', style: Glass.eyebrow(context)),
@@ -370,10 +373,16 @@ class _SetupSlabState extends State<_SetupSlab> {
     }
   }
 
+  bool _installingGit = false;
+
   Future<void> _installGit() async {
-    await widget.services.tools.installGit();
-    widget.onMessage(
-        "Follow Apple's installer, then press Check again when it finishes.");
+    setState(() => _installingGit = true);
+    try {
+      widget.onMessage(await widget.services.tools.installGit());
+      await _check();
+    } finally {
+      if (mounted) setState(() => _installingGit = false);
+    }
   }
 
   @override
@@ -428,10 +437,16 @@ class _SetupSlabState extends State<_SetupSlab> {
             ),
             row(
               'git',
-              "Sets your commit identity. Installed by Apple's Command Line "
-                  'Tools; takes a few minutes.',
+              Host.current.isWindows
+                  ? 'Sets your commit identity. Installs Git for Windows; '
+                      'takes a few minutes.'
+                  : "Sets your commit identity. Installed by Apple's Command "
+                      'Line Tools; takes a few minutes.',
               _git!,
-              FilledButton(onPressed: _installGit, child: const Text('Install')),
+              FilledButton(
+                onPressed: _installingGit ? null : _installGit,
+                child: Text(_installingGit ? 'Installing…' : 'Install'),
+              ),
             ),
           ],
         ),

@@ -4,6 +4,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'models/switch_result.dart';
 import 'platform/binary_locator.dart';
+import 'platform/host.dart';
 import 'platform/process_runner.dart';
 import 'platform/process_starter.dart';
 import 'services/account_store.dart';
@@ -76,7 +77,7 @@ class AppServices {
 
   static Future<AppServices> create() async {
     const runner = RealProcessRunner();
-    final home = Platform.environment['HOME']!;
+    final home = Host.current.home;
 
     final supportDir = await getApplicationSupportDirectory();
     // Where ToolInstaller puts gh. Searched last, so a gh the user installed
@@ -84,7 +85,7 @@ class AppServices {
     final binDir = Directory('${supportDir.path}/bin');
     final locator = BinaryLocator(
       runner: runner,
-      searchDirs: [...kBinarySearchDirs, binDir.path],
+      searchDirs: [...Host.current.binarySearchDirs, binDir.path],
     );
     final store = AccountStore(File('${supportDir.path}/accounts.json'));
     final removedLegacyHook = await _removeLegacyShellHook(
@@ -107,7 +108,7 @@ class AppServices {
     final gh = GhClient(
       runner: runner,
       locator: locator,
-      hostsFile: File('$home/.config/gh/hosts.yml'),
+      hostsFile: File('${Host.current.ghConfigDir(home)}/hosts.yml'),
     );
 
     return AppServices._(
@@ -116,7 +117,7 @@ class AppServices {
       notifier: const Notifier(),
       repoIdentity: RepoIdentityWriter(runner: runner, locator: locator),
       gitConfig: gitConfig,
-      sshTester: SshTester(runner: runner, home: home),
+      sshTester: SshTester(runner: runner, locator: locator, home: home),
       tools: ToolInstaller(runner: runner, binDir: binDir),
       keys: SshKeyCreator(runner: runner, locator: locator, home: home),
       removedLegacyHook: removedLegacyHook,

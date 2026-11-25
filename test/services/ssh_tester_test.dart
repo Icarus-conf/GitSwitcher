@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:git_switcher/src/models/account.dart';
 import 'package:git_switcher/src/models/switch_result.dart';
+import 'package:git_switcher/src/platform/binary_locator.dart';
+import 'package:git_switcher/src/platform/host.dart';
 import 'package:git_switcher/src/platform/process_runner.dart';
 import 'package:git_switcher/src/services/ssh_tester.dart';
 
@@ -10,6 +12,12 @@ import '../support/fake_process_runner.dart';
 
 void main() {
   late Directory home;
+  Host.current = Host.macos;
+  BinaryLocator locatorFor(FakeProcessRunner runner) => BinaryLocator(
+        runner: runner,
+        searchDirs: const ['/usr/bin'],
+        exists: (p) => p == '/usr/bin/ssh',
+      );
 
   setUp(() {
     home = Directory.systemTemp.createTempSync('gitswitcher_sshtest');
@@ -21,10 +29,14 @@ void main() {
   const account =
       Account(ghUsername: 'Octocat', sshKeyPath: '~/.ssh/id_work');
 
-  Future<StepResult> run(CommandResult reply) => SshTester(
-        runner: FakeProcessRunner(fallback: reply),
-        home: home.path,
-      ).test(account);
+  Future<StepResult> run(CommandResult reply) {
+    final runner = FakeProcessRunner(fallback: reply);
+    return SshTester(
+      runner: runner,
+      locator: locatorFor(runner),
+      home: home.path,
+    ).test(account);
+  }
 
   test('passes when GitHub greets the same login, ignoring case', () async {
     final step = await run(const CommandResult(1, '',
@@ -50,14 +62,14 @@ void main() {
 
   test('passes the expanded key path to ssh', () async {
     final runner = FakeProcessRunner();
-    await SshTester(runner: runner, home: home.path).test(account);
+    await SshTester(runner: runner, locator: locatorFor(runner), home: home.path).test(account);
 
     expect(runner.calls.single, contains('-i ${home.path}/.ssh/id_work'));
   });
 
   test('fails without running ssh when the key file is missing', () async {
     final runner = FakeProcessRunner();
-    final step = await SshTester(runner: runner, home: home.path)
+    final step = await SshTester(runner: runner, locator: locatorFor(runner), home: home.path)
         .test(const Account(ghUsername: 'x', sshKeyPath: '~/.ssh/nope'));
 
     expect(step.status, StepStatus.failed);

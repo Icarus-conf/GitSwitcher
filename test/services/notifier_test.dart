@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:git_switcher/src/models/switch_result.dart';
+import 'package:git_switcher/src/platform/host.dart';
 import 'package:git_switcher/src/services/notifier.dart';
 
 import 'package:flutter/services.dart';
@@ -59,5 +60,22 @@ void main() {
             (_) async => throw PlatformException(code: 'denied'));
 
     await const Notifier().show(title: 't', body: 'b');
+  });
+
+  test('on Windows, posts through the tray icon balloon', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    Host.current = Host.windows;
+    addTearDown(() => Host.current = Host.macos);
+    final sent = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(Notifier.trayChannel, (call) async {
+      sent.add(call);
+      return true;
+    });
+
+    await const Notifier().show(title: 'T', body: 'B');
+
+    expect(sent.single.method, 'showBalloon');
+    expect(sent.single.arguments, {'title': 'T', 'body': 'B'});
   });
 }

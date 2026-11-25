@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:git_switcher/src/platform/binary_locator.dart';
+import 'package:git_switcher/src/platform/host.dart';
 import 'package:git_switcher/src/platform/process_runner.dart';
 
 import '../support/fake_process_runner.dart';
@@ -74,5 +75,39 @@ void main() {
 
   test('the not-found message names the missing binary', () {
     expect(BinaryNotFoundException('gh').toString(), contains('gh'));
+  });
+
+  group('on Windows', () {
+    setUp(() => Host.current = Host.windows);
+    tearDown(() => Host.current = Host.macos);
+
+    test('looks for name.exe in each folder', () async {
+      final locator = BinaryLocator(
+        runner: FakeProcessRunner(),
+        searchDirs: const [r'C:\Program Files\GitHub CLI'],
+        exists: (path) => path == r'C:\Program Files\GitHub CLI\gh.exe',
+      );
+
+      expect(await locator.locate('gh'), r'C:\Program Files\GitHub CLI\gh.exe');
+    });
+
+    test('falls back to the first line where.exe prints', () async {
+      final runner = FakeProcessRunner(responses: {
+        'where.exe ssh': const CommandResult(
+            0, 'C:\\Tools\\ssh.exe\r\nC:\\Other\\ssh.exe', ''),
+      });
+      final locator = BinaryLocator(
+        runner: runner,
+        searchDirs: const [],
+        exists: (path) => path == r'C:\Tools\ssh.exe',
+      );
+
+      expect(await locator.locate('ssh'), r'C:\Tools\ssh.exe');
+    });
+  });
+
+  test('config paths use forward slashes on Windows only', () {
+    expect(Host.windows.configPath(r'C:\Users\me\.ssh\k'), 'C:/Users/me/.ssh/k');
+    expect(Host.macos.configPath('/Users/me/.ssh/k'), '/Users/me/.ssh/k');
   });
 }

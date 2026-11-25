@@ -5,11 +5,16 @@ import 'package:git_switcher/src/models/account.dart';
 import 'package:git_switcher/src/models/app_config.dart';
 import 'package:git_switcher/src/models/directory_rule.dart';
 import 'package:git_switcher/src/models/switch_result.dart';
+import 'package:git_switcher/src/platform/host.dart';
 import 'package:git_switcher/src/services/git_config_writer.dart';
 
 /// These tests run the real git binary against a throwaway HOME, so they prove
 /// git actually honours what we write — not just that we wrote it.
 void main() {
+  // Real git on whichever system runs the suite, so Windows CI checks the
+  // gitdir/i and forward-slash handling for real.
+  Host.current = Platform.isWindows ? Host.windows : Host.macos;
+  String cfg(String path) => Host.current.configPath(path);
   late Directory home;
   late File gitconfig;
   late GitConfigWriter writer;
@@ -87,7 +92,7 @@ void main() {
 
     expect(gitGet(inside, 'user.email'), 'octo@work.example');
     expect(gitGet(inside, 'core.sshCommand'),
-        "ssh -i '${home.path}/.ssh/id_work' -o IdentitiesOnly=yes");
+        "ssh -i '${cfg(home.path)}/.ssh/id_work' -o IdentitiesOnly=yes");
     expect(gitGet(outside, 'user.email'), 'me@home.example');
     expect(gitGet(outside, 'core.sshCommand'), isNull);
   });
@@ -156,7 +161,7 @@ void main() {
 
     expect(gitGet(elsewhere, 'commit.gpgsign'), 'true');
     expect(gitGet(elsewhere, 'gpg.format'), 'ssh');
-    expect(gitGet(elsewhere, 'user.signingkey'), '${home.path}/.ssh/id_work');
+    expect(gitGet(elsewhere, 'user.signingkey'), '${cfg(home.path)}/.ssh/id_work');
     // A folder for a non-signing account must not sign with someone else's key.
     expect(gitGet(clientRepo, 'commit.gpgsign'), 'false');
   });

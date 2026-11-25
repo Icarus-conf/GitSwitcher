@@ -83,6 +83,10 @@ class TrayManagerPlugin : public flutter::Plugin {
   void TrayManagerPlugin::GetBounds(
       const flutter::MethodCall<flutter::EncodableValue>& method_call,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
+  // GitSwitcher patch: notifications. See ShowBalloon below.
+  void TrayManagerPlugin::ShowBalloon(
+      const flutter::MethodCall<flutter::EncodableValue>& method_call,
+      std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
   // Called when a method is called on this plugin's channel from Dart.
   void HandleMethodCall(
       const flutter::MethodCall<flutter::EncodableValue>& method_call,
@@ -396,6 +400,36 @@ void TrayManagerPlugin::GetBounds(
   result->Success(flutter::EncodableValue(resultMap));
 }
 
+// GitSwitcher patch: shows a notification from the tray icon. Windows 10 and
+// 11 render a tray balloon as a toast credited to this app's own name and
+// icon, with no AppUserModelID or Start menu shortcut to set up.
+void TrayManagerPlugin::ShowBalloon(
+    const flutter::MethodCall<flutter::EncodableValue>& method_call,
+    std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+  const flutter::EncodableMap& args =
+      std::get<flutter::EncodableMap>(*method_call.arguments());
+  std::string title =
+      std::get<std::string>(args.at(flutter::EncodableValue("title")));
+  std::string body =
+      std::get<std::string>(args.at(flutter::EncodableValue("body")));
+
+  if (!tray_icon_setted) {
+    result->Success(flutter::EncodableValue(false));
+    return;
+  }
+
+  NOTIFYICONDATA balloon = nid;  // Same hWnd and uID: the existing icon.
+  balloon.uFlags = NIF_INFO;
+  balloon.dwInfoFlags = NIIF_NONE;
+  StringCchCopy(balloon.szInfoTitle, _countof(balloon.szInfoTitle),
+                g_converter.from_bytes(title).c_str());
+  StringCchCopy(balloon.szInfo, _countof(balloon.szInfo),
+                g_converter.from_bytes(body).c_str());
+  bool shown = Shell_NotifyIcon(NIM_MODIFY, &balloon) == TRUE;
+
+  result->Success(flutter::EncodableValue(shown));
+}
+
 void TrayManagerPlugin::HandleMethodCall(
     const flutter::MethodCall<flutter::EncodableValue>& method_call,
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
@@ -411,6 +445,9 @@ void TrayManagerPlugin::HandleMethodCall(
     PopUpContextMenu(method_call, std::move(result));
   } else if (method_call.method_name().compare("getBounds") == 0) {
     GetBounds(method_call, std::move(result));
+  } else if (method_call.method_name().compare("showBalloon") == 0) {
+    // GitSwitcher patch: notifications.
+    ShowBalloon(method_call, std::move(result));
   } else {
     result->NotImplemented();
   }

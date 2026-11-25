@@ -1,6 +1,7 @@
 # GitSwitcher
 
-A macOS menu bar app for switching between GitHub accounts.
+A menu bar (macOS) and system tray (Windows) app for switching between GitHub
+accounts.
 
 Pick an account and it switches three things at once:
 
@@ -13,13 +14,26 @@ what ran.
 
 ## Install
 
-1. Download the zip from [Releases](../../releases/latest) and unzip it.
+### macOS
+
+1. Download the `-macos.zip` from [Releases](../../releases/latest) and unzip it.
 2. Move `GitSwitcher.app` to `/Applications`.
 3. **Right-click it and choose Open** the first time.
 
 Step 3 is needed because the app isn't signed with an Apple Developer
 certificate. Double-clicking shows a warning with no way past it; right-click →
 Open gives you the choice. macOS only asks once.
+
+### Windows
+
+1. Download the `-windows.zip` from [Releases](../../releases/latest) and unzip
+   it anywhere, for example into `%LOCALAPPDATA%\Programs`.
+2. Run `GitSwitcher\GitSwitcher.exe`. It lives in the system tray.
+3. If SmartScreen says "Windows protected your PC", choose **More info → Run
+   anyway**. The build isn't code-signed, so Windows asks once.
+
+On Windows the shortcut is **Ctrl+Alt+G**, git installs through `winget`, and
+the tray menu shows names without avatars.
 
 To start it automatically, turn on **Open at login** in Settings.
 
@@ -46,7 +60,7 @@ this version lack the permission to add keys; for those the key is copied
 and GitHub's page opens for you to paste it. Or point the card at a key you
 already have.
 
-**⌃⌥⌘G** opens the menu from anywhere.
+**⌃⌥⌘G** (Ctrl+Alt+G on Windows) opens the menu from anywhere.
 
 You don't have to fill anything in. An empty account still switches your active
 `gh` account, which is enough on its own if you use HTTPS remotes.
@@ -80,7 +94,11 @@ it's not the one you expect.
 | global `.gitconfig` | `user.name` and `user.email`; plus, only if you add a folder or sign commits, a block between the same markers that includes files from the app's folder |
 | `~/.zshrc` | nothing now — an older version's folder hook is removed on first launch |
 | a repo's `.git/config` | only a repo you pick yourself |
-| `~/Library/Application Support/io.github.icarusconf.gitswitcher/` | its own settings and cached avatars |
+| `~/Library/Application Support/io.github.icarusconf.gitswitcher/` (macOS), `%APPDATA%\io.github.icarusconf\GitSwitcher\` (Windows) | its own settings and cached avatars |
+| `HKCU\…\CurrentVersion\Run` (Windows) | one `GitSwitcher` value, only while **Open at login** is on |
+
+On Windows, `~` is your user folder (`%USERPROFILE%`), the same place git and
+ssh use.
 
 Everything outside those markers is left untouched, and a backup is written
 before each change. If the markers are ever damaged, it refuses to write and
@@ -95,8 +113,9 @@ keeps its tokens in the macOS keychain.
 ## Build from source
 
 ```bash
-flutter build macos --release
 flutter test
+flutter build macos --release      # on a Mac
+flutter build windows --release    # on Windows
 ```
 
 `tray_manager` is vendored in `third_party/` with a small patch, because the

@@ -1,20 +1,30 @@
 import 'package:flutter/services.dart';
 
 import '../models/switch_result.dart';
+import '../platform/host.dart';
 
-/// Posts macOS notifications as GitSwitcher, with its name and icon.
+/// Posts notifications as GitSwitcher, with its own name and icon.
 ///
-/// The native side is in MainFlutterWindow.swift. If the user turned
-/// notifications off, nothing is shown — their choice, not an error.
+/// macOS: UNUserNotificationCenter, in MainFlutterWindow.swift.
+/// Windows: a balloon on the tray icon, which Windows shows as a toast — a
+/// method GitSwitcher adds to the vendored tray_manager (third_party/).
+/// If the user turned notifications off, nothing is shown — their choice,
+/// not an error.
 class Notifier {
   const Notifier();
 
   static const MethodChannel channel =
       MethodChannel('gitswitcher/notifications');
+  static const MethodChannel trayChannel = MethodChannel('tray_manager');
 
   Future<void> show({required String title, required String body}) async {
+    final args = {'title': title, 'body': body};
     try {
-      await channel.invokeMethod<bool>('show', {'title': title, 'body': body});
+      if (Host.current.isWindows) {
+        await trayChannel.invokeMethod<bool>('showBalloon', args);
+      } else {
+        await channel.invokeMethod<bool>('show', args);
+      }
     } on PlatformException {
       // A notification that cannot be shown must never break a switch.
     }
