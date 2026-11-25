@@ -22,13 +22,23 @@ void main() {
       expect(block.replaceIn('', 'B'), 'B\n');
     });
 
-    test('replaces in place and preserves both sides', () {
+    test('moves an existing block to the end and preserves the rest', () {
       const existing = 'before\n\n# >>> X\nold\n# <<< X\n\nafter\n';
 
       expect(
         block.replaceIn(existing, '# >>> X\nnew\n# <<< X'),
-        'before\n\n# >>> X\nnew\n# <<< X\n\nafter\n',
+        'before\n\nafter\n\n# >>> X\nnew\n# <<< X\n',
       );
+    });
+
+    test('is stable: rewriting the same block changes nothing', () {
+      const atEnd = ManagedBlock(beginMarker: '# >>> X', endMarker: '# <<< X');
+      const atStart = ManagedBlock(
+          beginMarker: '# >>> X', endMarker: '# <<< X', atStart: true);
+      for (final b in [atEnd, atStart]) {
+        final once = b.replaceIn('user\n', b.render(['x']));
+        expect(b.replaceIn(once, b.render(['x'])), once);
+      }
     });
 
     test('throws when the closing marker is missing', () {
@@ -85,5 +95,21 @@ void main() {
 
     expect(backup.path, endsWith('.gitswitcher-backup-42'));
     expect(backup.readAsStringSync(), 'original contents');
+  });
+
+  test('BackupWriter keeps only the newest copies', () async {
+    final tempDir = Directory.systemTemp.createTempSync('gitswitcher_prune');
+    addTearDown(() => tempDir.deleteSync(recursive: true));
+    final file = File('${tempDir.path}/config');
+
+    for (var stamp = 1; stamp <= 4; stamp++) {
+      await BackupWriter(
+        keep: 2,
+        now: () => DateTime.fromMillisecondsSinceEpoch(stamp * 1000),
+      ).write(file, 'v$stamp');
+    }
+
+    final left = tempDir.listSync().map((e) => e.path.split('-').last).toSet();
+    expect(left, {'3000', '4000'});
   });
 }

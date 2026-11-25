@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:git_switcher/src/models/account.dart';
 import 'package:git_switcher/src/models/switch_result.dart';
+import 'package:git_switcher/src/services/managed_block.dart';
 import 'package:git_switcher/src/services/ssh_config_writer.dart';
 
 import '../support/fake_process_runner.dart';
@@ -20,7 +21,9 @@ void main() {
     writer = SshConfigWriter(
       file: configFile,
       runner: runner,
-      now: () => DateTime.fromMillisecondsSinceEpoch(1700000000000),
+      backups: BackupWriter(
+        now: () => DateTime.fromMillisecondsSinceEpoch(1700000000000),
+      ),
     );
   });
 
@@ -34,18 +37,18 @@ void main() {
   group('replaceBlock', () {
     const block = 'BEGIN\nbody\nEND';
 
-    test('appends to content that has no markers', () {
+    test('puts the block before content that has no markers', () {
       final result =
           SshConfigWriter.replaceBlock('Host *\n    TCPKeepAlive yes\n', block);
 
-      expect(result, 'Host *\n    TCPKeepAlive yes\n\nBEGIN\nbody\nEND\n');
+      expect(result, 'BEGIN\nbody\nEND\n\nHost *\n    TCPKeepAlive yes\n');
     });
 
     test('appends to empty content without leading blank lines', () {
       expect(SshConfigWriter.replaceBlock('', block), 'BEGIN\nbody\nEND\n');
     });
 
-    test('replaces an existing block in place', () {
+    test('moves an existing block from the bottom to the top', () {
       const existing = 'before\n\n'
           '${SshConfigWriter.beginMarker}\nold body\n${SshConfigWriter.endMarker}'
           '\n\nafter\n';
@@ -54,7 +57,7 @@ void main() {
 
       final result = SshConfigWriter.replaceBlock(existing, newBlock);
 
-      expect(result, 'before\n\n$newBlock\n\nafter\n');
+      expect(result, '$newBlock\n\nbefore\n\nafter\n');
     });
 
     test('throws when the closing marker is missing', () {
@@ -109,7 +112,23 @@ void main() {
 
       await writer.apply(account);
 
-      expect(configFile.readAsStringSync(), startsWith(original));
+      expect(configFile.readAsStringSync(), endsWith(original));
+    });
+
+    test('comes before a user key for every host, so it is tried first',
+        () async {
+      configFile.writeAsStringSync('Host *\n    IdentityFile ~/.ssh/id_rsa\n');
+
+      await writer.apply(account);
+
+      final contents = configFile.readAsStringSync();
+      expect(contents.indexOf('/Users/me/.ssh/id_work'),
+          lessThan(contents.indexOf('~/.ssh/id_rsa')));
+    });
+
+    test('closes its Host block so user lines after it stay global', () {
+      final rendered = SshConfigWriter.renderBlock('/k').split('\n');
+      expect(rendered[rendered.length - 2], 'Host *');
     });
 
     test('replaces the key on a second switch without duplicating the block',

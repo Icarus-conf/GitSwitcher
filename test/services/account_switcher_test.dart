@@ -5,7 +5,9 @@ import 'package:git_switcher/src/models/account.dart';
 import 'package:git_switcher/src/models/switch_result.dart';
 import 'package:git_switcher/src/platform/binary_locator.dart';
 import 'package:git_switcher/src/platform/process_runner.dart';
+import 'package:git_switcher/src/services/account_store.dart';
 import 'package:git_switcher/src/services/account_switcher.dart';
+import 'package:git_switcher/src/services/git_config_writer.dart';
 import 'package:git_switcher/src/services/gh_client.dart';
 import 'package:git_switcher/src/services/git_identity_writer.dart';
 import 'package:git_switcher/src/services/ssh_config_writer.dart';
@@ -36,6 +38,12 @@ void main() {
       gh: GhClient(runner: runner, locator: locator, hostsFile: hostsFile),
       git: GitIdentityWriter(runner: runner, locator: locator),
       ssh: SshConfigWriter(file: sshConfig, runner: runner),
+      gitConfig: GitConfigWriter(
+        gitconfig: File('${tempDir.path}/gitconfig'),
+        directory: Directory('${tempDir.path}/git'),
+        home: '/Users/me',
+      ),
+      store: AccountStore(File('${tempDir.path}/accounts.json')),
     );
   }
 
@@ -47,12 +55,12 @@ void main() {
     sshKeyPath: '/Users/me/.ssh/id_work',
   );
 
-  test('runs all three steps and reports them in order', () async {
+  test('runs every step and reports them in order', () async {
     final result =
         await buildSwitcher(FakeProcessRunner()).switchTo(fullAccount);
 
     expect(result.ghUsername, 'octocat');
-    expect(result.steps.map((s) => s.name), ['gh', 'git identity', 'ssh']);
+    expect(result.steps.map((s) => s.name), ['gh', 'git identity', 'ssh', 'git config']);
     expect(result.allOk, isTrue);
   });
 

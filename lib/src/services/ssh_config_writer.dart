@@ -16,30 +16,38 @@ class SshConfigWriter {
   SshConfigWriter({
     required File file,
     required ProcessRunner runner,
-    DateTime Function() now = DateTime.now,
+    BackupWriter backups = const BackupWriter(),
   })  : _file = file,
         _runner = runner,
-        _now = now;
+        _backups = backups;
 
   final File _file;
   final ProcessRunner _runner;
-  final DateTime Function() _now;
+  final BackupWriter _backups;
 
   static const String stepName = 'ssh';
   static const String beginMarker = '# >>> GitSwitcher (managed — do not edit)';
   static const String endMarker = '# <<< GitSwitcher';
 
+  /// Kept at the top of the file. ssh tries every matching IdentityFile in
+  /// the order it reads them, so a block at the bottom would lose to any
+  /// earlier `Host *` or `Host github.com` key — and GitHub would happily
+  /// accept that key as a different account.
   static const ManagedBlock block = ManagedBlock(
     beginMarker: beginMarker,
     endMarker: endMarker,
+    atStart: true,
   );
 
+  /// Only the key is set, so the user's own HostName, Port or proxy settings
+  /// for github.com still apply. The trailing `Host *` closes our block:
+  /// without it, the user's next top-level line (an `Include`, say) would
+  /// silently become part of the github.com block.
   static String renderBlock(String keyPath) => block.render([
         'Host github.com',
-        '    HostName github.com',
-        '    User git',
         '    IdentityFile $keyPath',
         '    IdentitiesOnly yes',
+        'Host *',
       ]);
 
   /// Returns [existing] with the managed block set to [newBlock].
@@ -67,11 +75,7 @@ class SshConfigWriter {
     if (updated == existing) return const StepResult.ok(stepName);
 
     try {
-      if (fileExisted) {
-        final stamp = _now().millisecondsSinceEpoch;
-        await File('${_file.path}.gitswitcher-backup-$stamp')
-            .writeAsString(existing);
-      }
+      if (fileExisted) await _backups.write(_file, existing);
 
       await _file.parent.create(recursive: true);
       await _file.writeAsString(updated);
