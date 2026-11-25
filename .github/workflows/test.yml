@@ -26,6 +26,10 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
-      # Proves the C++ (runner hot key, tray_manager balloon patch) compiles.
+      # Proves the native code compiles against the committed deployment
+      # targets — a newer local toolchain can raise them and hide errors,
+      # which once surfaced only in the release build.
+      - if: runner.os == 'macOS'
+        run: flutter build macos --release
       - if: runner.os == 'Windows'
         run: flutter build windows --release

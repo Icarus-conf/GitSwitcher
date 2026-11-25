@@ -18,7 +18,13 @@ class AppDelegate: FlutterAppDelegate, UNUserNotificationCenterDelegate {
     withCompletionHandler completionHandler:
       @escaping (UNNotificationPresentationOptions) -> Void
   ) {
-    completionHandler([.banner, .list])
+    // .banner and .list arrived in macOS 11; the app still runs on 10.15,
+    // where .alert is the same thing.
+    if #available(macOS 11.0, *) {
+      completionHandler([.banner, .list])
+    } else {
+      completionHandler([.alert])
+    }
   }
 
   /// GitSwitcher lives in the menu bar, not in a window. The settings window is
