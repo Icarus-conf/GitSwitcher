@@ -2,6 +2,7 @@ import Carbon.HIToolbox
 import Cocoa
 import FlutterMacOS
 import ServiceManagement
+import UserNotifications
 
 // File-level, because a Carbon event handler is a C function pointer and cannot
 // capture anything.
@@ -18,8 +19,41 @@ class MainFlutterWindow: NSWindow {
     RegisterGeneratedPlugins(registry: flutterViewController)
     registerLaunchAtLogin(flutterViewController.engine.binaryMessenger)
     registerMenuHotKey(flutterViewController.engine.binaryMessenger)
+    registerNotifications(flutterViewController.engine.binaryMessenger)
 
     super.awakeFromNib()
+  }
+
+  /// Posts notifications as GitSwitcher itself, so they carry its name and
+  /// icon. (osascript's `display notification` is credited to Script Editor.)
+  /// macOS asks the user once for permission, on the first notification.
+  private func registerNotifications(_ messenger: FlutterBinaryMessenger) {
+    let channel = FlutterMethodChannel(
+      name: "gitswitcher/notifications", binaryMessenger: messenger)
+
+    channel.setMethodCallHandler { call, result in
+      guard call.method == "show",
+        let args = call.arguments as? [String: String]
+      else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      let center = UNUserNotificationCenter.current()
+      center.requestAuthorization(options: [.alert]) { granted, _ in
+        guard granted else {
+          DispatchQueue.main.async { result(false) }
+          return
+        }
+        let content = UNMutableNotificationContent()
+        content.title = args["title"] ?? ""
+        content.body = args["body"] ?? ""
+        let request = UNNotificationRequest(
+          identifier: UUID().uuidString, content: content, trigger: nil)
+        center.add(request) { error in
+          DispatchQueue.main.async { result(error == nil) }
+        }
+      }
+    }
   }
 
   /// ⌃⌥⌘G opens the menu from anywhere. Carbon's RegisterEventHotKey is the
