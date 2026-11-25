@@ -41,6 +41,8 @@ Future<void> main() async {
   });
 
   final services = await AppServices.create();
+  // Picks up rules saved before folder switching moved to git includeIf.
+  await services.syncGitConfig();
   final tray = TrayController(services);
   await tray.start();
 

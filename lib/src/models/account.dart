@@ -9,6 +9,7 @@ class Account {
     this.gitName = '',
     this.gitEmail = '',
     this.sshKeyPath = '',
+    this.signCommits = false,
   });
 
   final String ghUsername;
@@ -16,6 +17,10 @@ class Account {
   final String gitName;
   final String gitEmail;
   final String sshKeyPath;
+
+  /// Sign commits with [sshKeyPath]. GitHub only shows them as Verified once
+  /// that key is also added to the account as a signing key.
+  final bool signCommits;
 
   /// What the menu shows for this account.
   String get displayName => label.isEmpty ? ghUsername : label;
@@ -29,6 +34,7 @@ class Account {
     String? gitName,
     String? gitEmail,
     String? sshKeyPath,
+    bool? signCommits,
   }) {
     return Account(
       ghUsername: ghUsername,
@@ -36,6 +42,7 @@ class Account {
       gitName: gitName ?? this.gitName,
       gitEmail: gitEmail ?? this.gitEmail,
       sshKeyPath: sshKeyPath ?? this.sshKeyPath,
+      signCommits: signCommits ?? this.signCommits,
     );
   }
 
@@ -46,6 +53,7 @@ class Account {
       gitName: json['gitName'] as String? ?? '',
       gitEmail: json['gitEmail'] as String? ?? '',
       sshKeyPath: json['sshKeyPath'] as String? ?? '',
+      signCommits: json['signCommits'] as bool? ?? false,
     );
   }
 
@@ -55,6 +63,7 @@ class Account {
         'gitName': gitName,
         'gitEmail': gitEmail,
         'sshKeyPath': sshKeyPath,
+        'signCommits': signCommits,
       };
 
   @override
@@ -64,11 +73,12 @@ class Account {
       other.label == label &&
       other.gitName == gitName &&
       other.gitEmail == gitEmail &&
-      other.sshKeyPath == sshKeyPath;
+      other.sshKeyPath == sshKeyPath &&
+      other.signCommits == signCommits;
 
   @override
   int get hashCode =>
-      Object.hash(ghUsername, label, gitName, gitEmail, sshKeyPath);
+      Object.hash(ghUsername, label, gitName, gitEmail, sshKeyPath, signCommits);
 
   @override
   String toString() => 'Account($ghUsername, label: $label)';

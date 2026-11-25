@@ -25,13 +25,17 @@ To start it automatically, turn on **Open at login** in Settings.
 
 ## Setup
 
-You need the [GitHub CLI](https://cli.github.com), signed in to each account:
+GitSwitcher drives the [GitHub CLI](https://cli.github.com) and git. If
+either is missing, **Settings…** shows **Finish setting up** with an Install
+button for each:
 
-```bash
-gh auth login
-```
+- **gh** is downloaded from its official GitHub release into the app's own
+  folder and checked against the SHA-256 GitHub publishes. No admin password
+  or Homebrew needed. A gh you installed yourself is always preferred.
+- **git** opens Apple's Command Line Tools installer.
 
-Then open **Settings…** from the menu bar icon. Every account `gh` knows about
+Then press **+** in Settings to sign in to each account (or run
+`gh auth login`). Every account `gh` knows about
 gets a card. Fill in a label, your git name and email, and the path to that
 account's SSH key.
 
@@ -44,10 +48,17 @@ You don't have to fill anything in. An empty account still switches your active
 beats the global one and ignores later switches, so it's the safest way to keep
 the right email on your commits.
 
-**Switch by folder** changes account when your terminal enters a folder you've
-mapped — `~/work` to your work account, say. It adds a small hook to your
-`~/.zshrc`; **Remove hook** takes it back out. Open a new terminal tab after
-installing, and note that nothing happens until you add at least one folder.
+**Identity by folder** gives every repo under a folder its own account —
+`~/work` to your work account, say. Commits there use that account's name and
+email (and signing key), and pushes use its SSH key, in every terminal, editor
+and git GUI at once. It uses git's own `includeIf`, so two terminals in
+different folders never fight. The menu's account and `gh` don't change.
+
+**Sign commits** (per account) signs with the account's SSH key. Add the same
+key to GitHub as a *signing* key, or commits show as Unverified.
+
+**Test SSH** asks GitHub which account a key really signs in as, and warns if
+it's not the one you expect.
 
 **Add account** signs in to a new GitHub account without leaving the app.
 
@@ -56,8 +67,8 @@ installing, and note that nothing happens until you add at least one folder.
 | File | What |
 |---|---|
 | `~/.ssh/config` | only between its own `# >>> GitSwitcher` markers |
-| `~/.zshrc` | only if you install the folder hook, same markers |
-| global `.gitconfig` | `user.name` and `user.email` |
+| global `.gitconfig` | `user.name` and `user.email`; plus, only if you add a folder or sign commits, a block between the same markers that includes files from the app's folder |
+| `~/.zshrc` | nothing now — an older version's folder hook is removed on first launch |
 | a repo's `.git/config` | only a repo you pick yourself |
 | `~/Library/Application Support/io.github.icarusconf.gitswitcher/` | its own settings and cached avatars |
 
@@ -65,8 +76,8 @@ Everything outside those markers is left untouched, and a backup is written
 before each change. If the markers are ever damaged, it refuses to write and
 tells you instead of guessing.
 
-Backups pile up as `~/.ssh/config.gitswitcher-backup-*`. They hold no secrets
-and are safe to delete.
+Backups are kept as `<file>.gitswitcher-backup-*`, the newest five per file.
+They hold no secrets and are safe to delete.
 
 The app never sees your credentials. Every GitHub call goes through `gh`, which
 keeps its tokens in the macOS keychain.

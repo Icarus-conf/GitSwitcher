@@ -17,6 +17,7 @@ class AccountSlab extends StatefulWidget {
     required this.accent,
     required this.onSave,
     required this.onApplyToRepo,
+    required this.onTestSsh,
   });
 
   final ResolvedAccount resolved;
@@ -24,6 +25,7 @@ class AccountSlab extends StatefulWidget {
   final Color accent;
   final Future<void> Function(Account) onSave;
   final Future<void> Function(Account) onApplyToRepo;
+  final Future<void> Function(Account) onTestSsh;
 
   @override
   State<AccountSlab> createState() => _AccountSlabState();
@@ -34,7 +36,9 @@ class _AccountSlabState extends State<AccountSlab> {
   late final TextEditingController _gitName;
   late final TextEditingController _gitEmail;
   late final TextEditingController _sshKeyPath;
+  late bool _signCommits;
   bool _editing = false;
+  bool _testing = false;
 
   @override
   void initState() {
@@ -44,6 +48,7 @@ class _AccountSlabState extends State<AccountSlab> {
     _gitName = TextEditingController(text: account.gitName);
     _gitEmail = TextEditingController(text: account.gitEmail);
     _sshKeyPath = TextEditingController(text: account.sshKeyPath);
+    _signCommits = account.signCommits;
   }
 
   @override
@@ -61,8 +66,18 @@ class _AccountSlabState extends State<AccountSlab> {
       gitName: _gitName.text.trim(),
       gitEmail: _gitEmail.text.trim(),
       sshKeyPath: _sshKeyPath.text.trim(),
+      signCommits: _signCommits,
     ));
     if (mounted) setState(() => _editing = false);
+  }
+
+  Future<void> _handleTest() async {
+    setState(() => _testing = true);
+    try {
+      await widget.onTestSsh(widget.resolved.account);
+    } finally {
+      if (mounted) setState(() => _testing = false);
+    }
   }
 
   @override
@@ -133,6 +148,22 @@ class _AccountSlabState extends State<AccountSlab> {
               hint: '~/.ssh/id_ed25519',
               mono: true,
             ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Sign commits with this key. Add it to GitHub as a '
+                    'signing key too, or commits show as Unverified.',
+                    style: Glass.body(context, size: 12),
+                  ),
+                ),
+                Switch(
+                  value: _signCommits,
+                  onChanged: (v) => setState(() => _signCommits = v),
+                  activeThumbColor: Glass.live,
+                ),
+              ],
+            ),
             const SizedBox(height: 4),
           ],
           Row(
@@ -147,6 +178,14 @@ class _AccountSlabState extends State<AccountSlab> {
                 icon: Icons.folder_outlined,
                 onPressed: () => widget.onApplyToRepo(account),
               ),
+              if (account.sshKeyPath.isNotEmpty && !_editing) ...[
+                const SizedBox(width: 8),
+                _QuietButton(
+                  label: _testing ? 'Testing…' : 'Test SSH',
+                  icon: Icons.key_outlined,
+                  onPressed: _testing ? null : _handleTest,
+                ),
+              ],
               const Spacer(),
               if (_editing)
                 _AccentButton(
@@ -175,7 +214,9 @@ class _Summary extends StatelessWidget {
 
     final rows = <(String, String, bool)>[
       ('commits as', account.gitEmail, account.gitEmail.isNotEmpty),
-      ('signs with', _shorten(account.sshKeyPath), account.sshKeyPath.isNotEmpty),
+      ('pushes with', _shorten(account.sshKeyPath), account.sshKeyPath.isNotEmpty),
+      if (account.signCommits && account.sshKeyPath.isNotEmpty)
+        ('signs with', 'the same key', true),
     ];
 
     return Column(
@@ -187,7 +228,7 @@ class _Summary extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 SizedBox(
-                  width: 74,
+                  width: 82,
                   child: Text(label, style: Glass.body(context, size: 12)),
                 ),
                 Expanded(
@@ -394,7 +435,7 @@ class _QuietButton extends StatelessWidget {
   const _QuietButton({required this.label, required this.onPressed, this.icon});
 
   final String label;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final IconData? icon;
 
   @override
