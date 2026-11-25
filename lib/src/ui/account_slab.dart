@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../models/account.dart';
+import '../platform/host.dart';
 import '../services/account_resolver.dart';
 import '../services/profile_store.dart';
 import 'theme/glass.dart';
@@ -273,8 +274,8 @@ class _Summary extends StatelessWidget {
 
   static String _shorten(String path) {
     if (path.isEmpty) return path;
-    final home = Platform.environment['HOME'];
-    if (home != null && path.startsWith(home)) {
+    final home = Host.current.home;
+    if (home.isNotEmpty && path.startsWith(home)) {
       return '~${path.substring(home.length)}';
     }
     return path;

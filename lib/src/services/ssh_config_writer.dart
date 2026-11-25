@@ -2,6 +2,7 @@ import 'dart:io';
 
 import '../models/account.dart';
 import '../models/switch_result.dart';
+import '../platform/host.dart';
 import '../platform/process_runner.dart';
 import 'managed_block.dart';
 
@@ -45,10 +46,15 @@ class SshConfigWriter {
   /// silently become part of the github.com block.
   static String renderBlock(String keyPath) => block.render([
         'Host github.com',
-        '    IdentityFile $keyPath',
+        '    IdentityFile ${_sshValue(Host.current.configPath(keyPath))}',
         '    IdentitiesOnly yes',
         'Host *',
       ]);
+
+  /// ssh config splits on spaces unless the value is quoted — a real concern
+  /// on Windows, where home folders are often `C:/Users/First Last`.
+  static String _sshValue(String value) =>
+      value.contains(' ') ? '"$value"' : value;
 
   /// Returns [existing] with the managed block set to [newBlock].
   ///
@@ -83,7 +89,7 @@ class SshConfigWriter {
       if (!fileExisted) {
         // Dart cannot set file modes directly, and ssh refuses to read a
         // world-readable config.
-        await _runner.run('/bin/chmod', ['600', _file.path]);
+        await Host.current.chmod(_runner, '600', _file.path);
       }
     } on FileSystemException catch (error) {
       return StepResult.failed(stepName, error.message);

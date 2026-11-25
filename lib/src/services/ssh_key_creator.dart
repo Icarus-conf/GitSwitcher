@@ -2,6 +2,7 @@ import 'dart:io';
 
 import '../models/account.dart';
 import '../platform/binary_locator.dart';
+import '../platform/host.dart';
 import '../platform/process_runner.dart';
 import 'git_config_writer.dart';
 
@@ -64,9 +65,9 @@ class SshKeyCreator {
       final sshDir = Directory('$_home/.ssh');
       if (!await sshDir.exists()) {
         await sshDir.create();
-        await _runner.run('/bin/chmod', ['700', sshDir.path]);
+        await Host.current.chmod(_runner, '700', sshDir.path);
       }
-      final made = await _runner.run('/usr/bin/ssh-keygen', [
+      final made = await _runner.run(await _locator.locate('ssh-keygen'), [
         '-t', 'ed25519', '-N', '', '-q',
         '-C', '$login@GitSwitcher',
         '-f', file,
@@ -117,5 +118,5 @@ class SshKeyCreator {
   }
 
   Future<void> openAddKeyPage() =>
-      _runner.run('/usr/bin/open', [addKeyPage.toString()]);
+      Host.current.openUrl(_runner, addKeyPage.toString());
 }

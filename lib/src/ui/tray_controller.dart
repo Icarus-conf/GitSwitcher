@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:tray_manager/tray_manager.dart';
 
 import '../app_services.dart';
+import '../platform/host.dart';
 import '../services/account_resolver.dart';
 import 'settings_window.dart';
 
@@ -34,7 +35,13 @@ class TrayController with TrayListener {
 
   Future<void> start() async {
     trayManager.addListener(this);
-    await trayManager.setIcon('assets/tray_icon.png', isTemplate: true);
+    // macOS wants a black template image it can recolour for the menu bar;
+    // the Windows tray takes a colour .ico.
+    if (Host.current.isMacOS) {
+      await trayManager.setIcon('assets/tray_icon.png', isTemplate: true);
+    } else {
+      await trayManager.setIcon('assets/tray_icon.ico');
+    }
     await trayManager.setToolTip('GitSwitcher');
     // Redraw once when late-arriving avatars land.
     _profileSubscription = _services.profiles.changes.listen((_) {
@@ -76,9 +83,16 @@ class TrayController with TrayListener {
     // The active account's name next to the icon, so you never have to open
     // the menu to find out who you are about to push as.
     final active = resolved.where((r) => r.isActive).firstOrNull;
-    await trayManager.setTitle(
-      active == null ? '' : ' ${active.account.displayName}',
-    );
+    if (Host.current.isMacOS) {
+      await trayManager.setTitle(
+        active == null ? '' : ' ${active.account.displayName}',
+      );
+    } else {
+      // The Windows tray has no room for text; the hover tip says it instead.
+      await trayManager.setToolTip(active == null
+          ? 'GitSwitcher'
+          : 'GitSwitcher — ${active.account.displayName}');
+    }
 
     final items = <MenuItem>[];
 
@@ -121,7 +135,7 @@ class TrayController with TrayListener {
       final names = {
         for (final r in resolved) r.account.ghUsername: r.account.displayName,
       };
-      final home = Platform.environment['HOME'] ?? '';
+      final home = Host.current.home;
       items.add(MenuItem.separator());
       items.add(MenuItem(key: '__folders', label: 'Folders', disabled: true));
       for (final rule in config.rules) {
@@ -138,7 +152,13 @@ class TrayController with TrayListener {
 
     items.addAll([
       MenuItem.separator(),
-      MenuItem(key: _settingsKey, label: 'Settings…', toolTip: '⌃⌥⌘G opens this menu'),
+      MenuItem(
+        key: _settingsKey,
+        label: 'Settings…',
+        toolTip: Host.current.isMacOS
+            ? '⌃⌥⌘G opens this menu'
+            : 'Ctrl+Alt+G opens this menu',
+      ),
       MenuItem(key: _quitKey, label: 'Quit GitSwitcher'),
     ]);
 

@@ -1,10 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_services.dart';
+import '../platform/host.dart';
+import '../platform/process_runner.dart';
 import '../services/gh_login_session.dart';
 import 'theme/glass.dart';
 import 'widgets/glass_slab.dart';
@@ -84,7 +85,7 @@ class _AddAccountDialogState extends State<AddAccountDialog> {
   Future<void> _openUrl() async {
     final url = _url;
     if (url == null) return;
-    await Process.run('/usr/bin/open', [url]);
+    await Host.current.openUrl(const RealProcessRunner(), url);
   }
 
   void _cancel() {

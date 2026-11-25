@@ -3,29 +3,39 @@ import 'dart:ffi' show Abi;
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:crypto/crypto.dart' show sha256;
+import 'package:git_switcher/src/platform/host.dart';
 import 'package:git_switcher/src/platform/process_runner.dart';
 import 'package:git_switcher/src/services/tool_installer.dart';
 
 import '../support/fake_process_runner.dart';
 
-/// The gh tests use the real shasum and ditto, so the checksum and unzip
-/// paths are exercised exactly as they run in the app.
+/// The gh tests unzip with the real tool for the system running the suite —
+/// ditto on macOS, Windows' own tar on Windows — exactly as the app does.
 void main() {
+  final windows = Platform.isWindows;
+  final os = windows ? 'windows' : 'macOS';
+  final ghName = windows ? 'gh.exe' : 'gh';
   late Directory temp;
   late List<int> zipBytes;
   late String digest;
 
   setUp(() {
+    Host.current = windows ? Host.windows : Host.macos;
     temp = Directory.systemTemp.createTempSync('gitswitcher_installer');
-    final staged = Directory('${temp.path}/stage/gh_9.9.9_macOS_arm64/bin')
+    final staged = Directory('${temp.path}/stage/gh_9.9.9_${os}_arm64/bin')
       ..createSync(recursive: true);
-    File('${staged.path}/gh').writeAsStringSync('#!/bin/sh\necho gh 9.9.9\n');
+    File('${staged.path}/$ghName')
+        .writeAsStringSync('#!/bin/sh\necho gh 9.9.9\n');
     final zip = '${temp.path}/gh.zip';
-    Process.runSync('/usr/bin/ditto',
-        ['-c', '-k', '${temp.path}/stage', zip]);
+    final made = windows
+        ? Process.runSync(
+            '${Platform.environment['SystemRoot']}\\System32\\tar.exe',
+            ['-a', '-c', '-f', zip, '-C', '${temp.path}/stage', '.'])
+        : Process.runSync('/usr/bin/ditto', ['-c', '-k', '${temp.path}/stage', zip]);
+    expect(made.exitCode, 0, reason: '${made.stderr}');
     zipBytes = File(zip).readAsBytesSync();
-    digest = 'sha256:${(Process.runSync('/usr/bin/shasum', ['-a', '256', zip])
-            .stdout as String).split(' ').first}';
+    digest = 'sha256:${sha256.convert(zipBytes)}';
   });
 
   tearDown(() => temp.deleteSync(recursive: true));
@@ -35,12 +45,12 @@ void main() {
       'tag_name': 'v9.9.9',
       'assets': [
         {
-          'name': 'gh_9.9.9_macOS_amd64.zip',
+          'name': 'gh_9.9.9_${os}_amd64.zip',
           'browser_download_url': 'https://x/amd64.zip',
           'digest': 'sha256:00',
         },
         {
-          'name': 'gh_9.9.9_macOS_arm64.zip',
+          'name': 'gh_9.9.9_${os}_arm64.zip',
           'browser_download_url': 'https://x/arm64.zip',
           'digest': publishedDigest ?? digest,
         },
@@ -49,7 +59,7 @@ void main() {
     return ToolInstaller(
       runner: const RealProcessRunner(),
       binDir: Directory('${temp.path}/bin'),
-      abi: Abi.macosArm64,
+      abi: windows ? Abi.windowsArm64 : Abi.macosArm64,
       fetch: (url) async {
         if (url == ToolInstaller.latestRelease) return utf8.encode(release);
         expect(url.toString(), 'https://x/arm64.zip');
@@ -61,10 +71,12 @@ void main() {
   test('installs the verified gh binary for this architecture', () async {
     final tag = await installer().installGh();
 
-    final gh = File('${temp.path}/bin/gh');
+    final gh = File('${temp.path}/bin/$ghName');
     expect(tag, 'v9.9.9');
     expect(gh.readAsStringSync(), contains('gh 9.9.9'));
-    expect(Process.runSync(gh.path, const []).stdout, contains('gh 9.9.9'));
+    if (!windows) {
+      expect(Process.runSync(gh.path, const []).stdout, contains('gh 9.9.9'));
+    }
   });
 
   test('refuses a download that does not match its checksum', () async {
@@ -73,7 +85,7 @@ void main() {
       throwsA(isA<ToolInstallException>()
           .having((e) => e.message, 'message', contains('checksum'))),
     );
-    expect(File('${temp.path}/bin/gh').existsSync(), isFalse);
+    expect(File('${temp.path}/bin/$ghName').existsSync(), isFalse);
   });
 
   test('refuses an asset with no published checksum', () async {
@@ -83,7 +95,9 @@ void main() {
     );
   });
 
-  test('updates an outdated gh it installed, and leaves a current one', () async {
+  test('updates an outdated gh it installed, and leaves a current one',
+      skip: windows ? 'runs the installed gh, a shell script here' : null,
+      () async {
     await installer().installGh(); // installs a gh reporting 9.9.9...
     File('${temp.path}/bin/gh')
         .writeAsStringSync('#!/bin/sh\necho gh version 1.0.0 \\(x\\)\n');
@@ -97,10 +111,11 @@ void main() {
 
   test('never touches a gh it did not install', () async {
     expect(await installer().updateGh(), isNull);
-    expect(File('${temp.path}/bin/gh').existsSync(), isFalse);
+    expect(File('${temp.path}/bin/$ghName').existsSync(), isFalse);
   });
 
   group('gitInstalled', () {
+    setUp(() => Host.current = Host.macos);
     test('the /usr/bin stub alone does not count', () async {
       final tools = ToolInstaller(
         runner: FakeProcessRunner(

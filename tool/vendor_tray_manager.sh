@@ -3,7 +3,8 @@
 # Re-vendors tray_manager from pub.dev and re-applies the GitSwitcher patch.
 #
 # The published package drops `icon` and `sublabel` on macOS menu items, which
-# the app needs for avatars and per-account hints. Rather than hand-editing the
+# the app needs for avatars and per-account hints, and has no way to show a
+# notification on Windows. Rather than hand-editing the
 # vendored copy after every upgrade, this script rebuilds it from upstream and
 # applies third_party/tray_manager.patch.
 #
@@ -40,14 +41,18 @@ error: the patch did not apply cleanly.
 Upstream changed the code the patch touches. Fix it once, by hand:
 
   1. Open the rejected hunks (*.rej) printed above.
-  2. Re-apply those changes to the new TrayMenu.swift, keeping the
-     "// GitSwitcher patch:" markers.
-  3. Regenerate the patch:
-       diff -u --label a/macos/tray_manager/Classes/TrayMenu.swift \
-               --label b/macos/tray_manager/Classes/TrayMenu.swift \
-               <clean>/macos/tray_manager/Classes/TrayMenu.swift \
-               third_party/tray_manager/macos/tray_manager/Classes/TrayMenu.swift \
-         > third_party/tray_manager.patch
+  2. Re-apply those changes to the new TrayMenu.swift and
+     tray_manager_plugin.cpp, keeping the "// GitSwitcher patch:" markers.
+  3. Regenerate the patch, one diff per file, concatenated:
+       { diff -u --label a/macos/tray_manager/Classes/TrayMenu.swift \
+                 --label b/macos/tray_manager/Classes/TrayMenu.swift \
+                 <clean>/macos/tray_manager/Classes/TrayMenu.swift \
+                 third_party/tray_manager/macos/tray_manager/Classes/TrayMenu.swift
+         diff -u --label a/windows/tray_manager_plugin.cpp \
+                 --label b/windows/tray_manager_plugin.cpp \
+                 <clean>/windows/tray_manager_plugin.cpp \
+                 third_party/tray_manager/windows/tray_manager_plugin.cpp
+       } > third_party/tray_manager.patch
 MSG
   exit 1
 fi
@@ -62,10 +67,12 @@ mkdir -p "$DEST"
 cp -R "$WORK/." "$DEST/"
 
 echo "==> Verifying the patch survived"
-if ! grep -q "GitSwitcher patch:" "$DEST/macos/tray_manager/Classes/TrayMenu.swift"; then
-  echo "error: patch markers missing after copy." >&2
-  exit 1
-fi
+for patched in macos/tray_manager/Classes/TrayMenu.swift windows/tray_manager_plugin.cpp; do
+  if ! grep -q "GitSwitcher patch:" "$DEST/$patched"; then
+    echo "error: patch markers missing from $patched after copy." >&2
+    exit 1
+  fi
+done
 
 echo
 echo "Done. tray_manager $VERSION vendored and patched."

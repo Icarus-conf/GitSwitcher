@@ -10,13 +10,21 @@ Vendored from pub.dev and wired in through `dependency_overrides` in the root
 even though the Dart-side `MenuItem` accepts it. That makes account avatars
 impossible.
 
-**The patch** is confined to `TrayMenu.swift` and is marked inline with
-`// GitSwitcher patch:` comments. It loads `icon`, masks it to a circle, and
+**The patch** touches two files, each marked inline with
+`// GitSwitcher patch:` comments.
+
+`macos/.../TrayMenu.swift`: It loads `icon`, masks it to a circle, and
 draws it at the start of the item's title as a text attachment.
 
 It goes in the title rather than `menuItem.image` on purpose: macOS 27 does not
 draw `NSMenuItem.image` in a status-item menu at all — not even system symbols —
 so an avatar there is silently invisible.
+
+`windows/tray_manager_plugin.cpp` adds a `showBalloon` method. Windows 10 and
+11 show a tray balloon as a regular notification credited to the app's own
+name and icon, so the app needs no AppUserModelID or Start menu shortcut.
+`lib/src/services/notifier.dart` calls it on the plugin's `tray_manager`
+channel.
 
 Nothing else is modified.
 
@@ -37,6 +45,7 @@ Afterwards, update the version in this file's heading and run:
 
 ```bash
 flutter pub get && flutter test && flutter build macos --release
+# and on Windows (or in CI): flutter build windows --release
 ```
 
 `test/vendored_patch_test.dart` asserts the patch is still present, so a

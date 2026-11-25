@@ -1,8 +1,12 @@
+@TestOn('mac-os') // Runs the real /usr/bin/ssh-keygen.
+library;
+
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:git_switcher/src/models/account.dart';
 import 'package:git_switcher/src/platform/binary_locator.dart';
+import 'package:git_switcher/src/platform/host.dart';
 import 'package:git_switcher/src/platform/process_runner.dart';
 import 'package:git_switcher/src/services/ssh_key_creator.dart';
 
@@ -25,6 +29,7 @@ class _Runner implements ProcessRunner {
 }
 
 void main() {
+  Host.current = Host.macos;
   late Directory home;
 
   setUp(() => home = Directory.systemTemp.createTempSync('gitswitcher_keys'));
@@ -39,8 +44,8 @@ void main() {
         hostname: 'mac',
         locator: BinaryLocator(
           runner: fake,
-          searchDirs: const ['/opt/homebrew/bin'],
-          exists: (p) => p == gh,
+          searchDirs: const ['/opt/homebrew/bin', '/usr/bin'],
+          exists: (p) => p == gh || p == '/usr/bin/ssh-keygen',
         ),
       );
 

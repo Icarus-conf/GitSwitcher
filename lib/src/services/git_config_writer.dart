@@ -3,6 +3,7 @@ import 'dart:io';
 import '../models/account.dart';
 import '../models/app_config.dart';
 import '../models/switch_result.dart';
+import '../platform/host.dart';
 import 'managed_block.dart';
 
 /// Expands a leading `~`, which neither git nor a process argument does.
@@ -88,7 +89,7 @@ class GitConfigWriter {
       final lines = <String>[];
       if (activeLines.isNotEmpty) {
         await _writeIfChanged(_activeFile, activeLines);
-        lines.addAll(['[include]', '\tpath = ${_quote(_activeFile.path)}']);
+        lines.addAll(['[include]', '\tpath = ${_quote(_path(_activeFile.path))}']);
       }
 
       final used = <String>{};
@@ -102,9 +103,11 @@ class GitConfigWriter {
           );
         }
         final dir = await _realPath(_trimSlash(expandHome(rule.pathPrefix)));
+        // Windows paths ignore case, so the match must too.
+        final gitdir = Host.current.isWindows ? 'gitdir/i' : 'gitdir';
         lines.addAll([
-          '[includeIf ${_quote('gitdir:$dir/')}]',
-          '\tpath = ${_quote(_accountFile(login).path)}',
+          '[includeIf ${_quote('$gitdir:${_path(dir)}/')}]',
+          '\tpath = ${_quote(_path(_accountFile(login).path))}',
         ]);
       }
       await _removeStaleAccountFiles(used);
@@ -135,7 +138,7 @@ class GitConfigWriter {
     required bool anySigns,
     String? gh,
   }) {
-    final key = expandHome(account.sshKeyPath);
+    final key = _path(expandHome(account.sshKeyPath));
     return [
       // HTTPS remotes. gh's own credential helper only ever answers for the
       // account active in the menu, so each folder asks gh for its own
@@ -144,7 +147,7 @@ class GitConfigWriter {
       if (gh != null) ...[
         '[credential "https://github.com"]',
         '\thelper =',
-        '\thelper = ${_quote(_credentialHelper(gh, account.ghUsername))}',
+        '\thelper = ${_quote(_credentialHelper(_path(gh), account.ghUsername))}',
       ],
       if (account.gitName.isNotEmpty && account.gitEmail.isNotEmpty) ...[
         '[user]',
@@ -174,7 +177,7 @@ class GitConfigWriter {
 
   List<String> _signingLines(Account account) => [
         '[user]',
-        '\tsigningkey = ${_quote(expandHome(account.sshKeyPath))}',
+        '\tsigningkey = ${_quote(_path(expandHome(account.sshKeyPath)))}',
         '[gpg]',
         '\tformat = ssh',
         '[commit]',
@@ -184,6 +187,8 @@ class GitConfigWriter {
   static bool _signs(Account a) => a.signCommits && a.sshKeyPath.isNotEmpty;
 
   String expandHome(String path) => expandTilde(path, _home);
+
+  static String _path(String path) => Host.current.configPath(path);
 
   /// git matches `gitdir:` against the repo's resolved path, so a folder
   /// reached through a symlink would never match as written.
@@ -197,7 +202,7 @@ class GitConfigWriter {
 
   static String _trimSlash(String path) {
     var result = path;
-    while (result.length > 1 && result.endsWith('/')) {
+    while (result.length > 1 && (result.endsWith('/') || result.endsWith(r'\'))) {
       result = result.substring(0, result.length - 1);
     }
     return result;

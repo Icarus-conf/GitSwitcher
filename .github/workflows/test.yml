@@ -1,7 +1,9 @@
 name: Test
 
 # release.yml only runs on version tags, so without this a regression is first
-# discovered while cutting a release.
+# discovered while cutting a release. Both systems, because the per-OS code
+# (lib/src/platform/host.dart) only takes its Windows branches on Windows, and
+# the Windows runner and tray patch only compile there.
 on:
   push:
     branches: [main]
@@ -9,7 +11,11 @@ on:
 
 jobs:
   test:
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
@@ -20,3 +26,6 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
+      # Proves the C++ (runner hot key, tray_manager balloon patch) compiles.
+      - if: runner.os == 'Windows'
+        run: flutter build windows --release

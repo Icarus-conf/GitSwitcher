@@ -109,6 +109,15 @@ jobs:
           warning with no way past it; right-click → Open gives you the option
           to run it anyway. macOS only asks once.
 
+          ## Install on Windows
+
+          1. Download the `-windows.zip` below and unzip it anywhere, for
+             example into `%LOCALAPPDATA%\Programs`.
+          2. Run `GitSwitcher\GitSwitcher.exe`.
+          3. If SmartScreen says "Windows protected your PC", choose
+             **More info → Run anyway**. The build is not code-signed, so
+             Windows asks once.
+
           ## Requirements
 
           The [GitHub CLI](https://cli.github.com), signed in to each account
@@ -124,3 +133,56 @@ jobs:
               --title "GitSwitcher $TAG" \
               --notes "$NOTES"
           fi
+
+  # Runs after the macOS job, which creates the release, so the two never race
+  # to create it; this one only adds its zip.
+  windows:
+    needs: build
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.2'
+          channel: stable
+          cache: true
+
+      - name: Resolve version
+        id: version
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "build_name=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - run: flutter pub get
+
+      - name: Test
+        run: flutter test
+
+      - name: Build Windows release
+        run: |
+          flutter build windows --release \
+            --build-name="${{ steps.version.outputs.build_name }}" \
+            --build-number="${{ github.run_number }}"
+
+      - name: Package
+        id: package
+        run: |
+          OUT="build/windows/x64/runner/Release"
+          test -f "$OUT/GitSwitcher.exe" || { echo "::error::$OUT/GitSwitcher.exe not found"; exit 1; }
+          NAME="GitSwitcher-${{ steps.version.outputs.tag }}-windows.zip"
+          # The exe needs the DLLs and data/ beside it, so the whole folder
+          # ships, inside a GitSwitcher/ folder rather than loose in the zip.
+          mkdir -p dist && cp -R "$OUT" dist/GitSwitcher
+          (cd dist && 7z a -tzip "../$NAME" GitSwitcher > /dev/null)
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ steps.version.outputs.tag }}" "${{ steps.package.outputs.name }}" --clobber

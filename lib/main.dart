@@ -5,6 +5,7 @@ import 'package:macos_window_utils/macos_window_utils.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'src/app_services.dart';
+import 'src/platform/host.dart';
 import 'src/ui/settings_screen.dart';
 import 'src/ui/theme/glass.dart';
 import 'src/ui/tray_controller.dart';
@@ -12,27 +13,31 @@ import 'src/ui/tray_controller.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Put a real NSVisualEffectView behind the Flutter view, so the window is
-  // frosted rather than see-through.
-  //
-  // Do NOT call makeWindowFullyTransparent() here: it removes the window
-  // background outright, which overrides the material and leaves the desktop
-  // showing through unblurred.
-  await WindowManipulator.initialize();
-  WindowManipulator.setMaterial(NSVisualEffectViewMaterial.sidebar);
-  WindowManipulator.makeTitlebarTransparent();
-  WindowManipulator.enableFullSizeContentView();
-  WindowManipulator.hideTitle();
+  if (Host.current.isMacOS) {
+    // Put a real NSVisualEffectView behind the Flutter view, so the window is
+    // frosted rather than see-through.
+    //
+    // Do NOT call makeWindowFullyTransparent() here: it removes the window
+    // background outright, which overrides the material and leaves the
+    // desktop showing through unblurred.
+    await WindowManipulator.initialize();
+    WindowManipulator.setMaterial(NSVisualEffectViewMaterial.sidebar);
+    WindowManipulator.makeTitlebarTransparent();
+    WindowManipulator.enableFullSizeContentView();
+    WindowManipulator.hideTitle();
+  }
 
   await windowManager.ensureInitialized();
 
-  const options = WindowOptions(
-    size: Size(660, 620),
+  final options = WindowOptions(
+    size: const Size(660, 620),
     center: true,
     title: 'GitSwitcher Settings',
-    // The content runs under the title bar, so the frosted layer reaches the
-    // top edge. The window background is left alone — the material owns it.
-    titleBarStyle: TitleBarStyle.hidden,
+    // macOS: the content runs under the title bar, so the frosted layer
+    // reaches the top edge; the traffic lights stay. Windows has no such
+    // material, and a hidden title bar there would take the close button.
+    titleBarStyle:
+        Host.current.isMacOS ? TitleBarStyle.hidden : TitleBarStyle.normal,
     skipTaskbar: true,
   );
 
@@ -90,8 +95,8 @@ class GitSwitcherApp extends StatelessWidget {
       useMaterial3: true,
       brightness: brightness,
       colorScheme: scheme,
-      scaffoldBackgroundColor: Colors.transparent,
-      canvasColor: Colors.transparent,
+      scaffoldBackgroundColor: Glass.windowBackground(brightness),
+      canvasColor: Glass.windowBackground(brightness),
       dialogTheme: const DialogThemeData(backgroundColor: Colors.transparent),
       splashFactory: NoSplash.splashFactory,
       snackBarTheme: SnackBarThemeData(

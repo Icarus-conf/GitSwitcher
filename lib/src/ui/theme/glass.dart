@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../platform/host.dart';
+
 /// Design tokens for GitSwitcher's glass surfaces.
 ///
 /// In a glass interface the material carries the design, so the palette stays
@@ -31,6 +33,17 @@ class Glass {
   ];
 
   static Color accentFor(int index) => accents[index % accents.length];
+
+  /// What sits behind the slabs. On macOS that is the window's own frosted
+  /// material, so Flutter paints nothing. Windows has no equivalent here, and
+  /// a transparent Flutter view there renders black, so it gets a solid
+  /// ground in the system's own light and dark greys.
+  static Color windowBackground(Brightness brightness) {
+    if (Host.current.isMacOS) return Colors.transparent;
+    return brightness == Brightness.dark
+        ? const Color(0xFF202020)
+        : const Color(0xFFF3F3F3);
+  }
 
   static bool isDark(BuildContext context) =>
       Theme.of(context).brightness == Brightness.dark;
@@ -73,7 +86,7 @@ class Glass {
   }) {
     return TextStyle(
       fontFamily: 'SF Mono',
-      fontFamilyFallback: const ['SFMono-Regular', 'Menlo', 'Courier'],
+      fontFamilyFallback: const ['SFMono-Regular', 'Menlo', 'Consolas', 'Courier New'],
       fontSize: size,
       fontWeight: weight,
       letterSpacing: 0,
@@ -103,7 +116,7 @@ class Glass {
   /// Small uppercase section marker.
   static TextStyle eyebrow(BuildContext context) => TextStyle(
         fontFamily: 'SF Mono',
-        fontFamilyFallback: const ['SFMono-Regular', 'Menlo', 'Courier'],
+        fontFamilyFallback: const ['SFMono-Regular', 'Menlo', 'Consolas', 'Courier New'],
         fontSize: 10,
         fontWeight: FontWeight.w600,
         letterSpacing: 1.4,

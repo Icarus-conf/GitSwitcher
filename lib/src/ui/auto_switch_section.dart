@@ -1,9 +1,9 @@
-import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../app_services.dart';
+import '../platform/host.dart';
 import '../models/account.dart';
 import '../models/app_config.dart';
 import '../models/directory_rule.dart';
@@ -196,8 +196,8 @@ class _AutoSwitchSectionState extends State<AutoSwitchSection> {
   }
 
   static String _shorten(String path) {
-    final home = Platform.environment['HOME'];
-    if (home != null && path.startsWith(home)) {
+    final home = Host.current.home;
+    if (home.isNotEmpty && path.startsWith(home)) {
       return '~${path.substring(home.length)}';
     }
     return path;
