@@ -1,21 +1,23 @@
+import 'package:flutter/services.dart';
+
 import '../models/switch_result.dart';
-import '../platform/process_runner.dart';
 
-/// Posts macOS notifications through osascript.
+/// Posts macOS notifications as GitSwitcher, with its name and icon.
 ///
-/// Shelling out avoids a native plugin and keeps this unit testable with the
-/// same fake process runner as the rest of the app.
+/// The native side is in MainFlutterWindow.swift. If the user turned
+/// notifications off, nothing is shown — their choice, not an error.
 class Notifier {
-  const Notifier(this._runner);
+  const Notifier();
 
-  final ProcessRunner _runner;
-
-  static const String appName = 'GitSwitcher';
+  static const MethodChannel channel =
+      MethodChannel('gitswitcher/notifications');
 
   Future<void> show({required String title, required String body}) async {
-    final script =
-        'display notification "${_escape(body)}" with title "${_escape(title)}"';
-    await _runner.run('/usr/bin/osascript', ['-e', script]);
+    try {
+      await channel.invokeMethod<bool>('show', {'title': title, 'body': body});
+    } on PlatformException {
+      // A notification that cannot be shown must never break a switch.
+    }
   }
 
   Future<void> showSwitchResult(SwitchResult result, String displayName) {
@@ -40,7 +42,4 @@ class Notifier {
 
     return 'gh, git identity and SSH updated.';
   }
-
-  static String _escape(String text) =>
-      text.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
 }

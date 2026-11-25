@@ -113,7 +113,7 @@ class AppServices {
     return AppServices._(
       store: store,
       gh: gh,
-      notifier: const Notifier(runner),
+      notifier: const Notifier(),
       repoIdentity: RepoIdentityWriter(runner: runner, locator: locator),
       gitConfig: gitConfig,
       sshTester: SshTester(runner: runner, home: home),

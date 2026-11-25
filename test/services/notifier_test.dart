@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:git_switcher/src/models/switch_result.dart';
 import 'package:git_switcher/src/services/notifier.dart';
 
-import '../support/fake_process_runner.dart';
+import 'package:flutter/services.dart';
 
 void main() {
   test('describes a fully successful switch', () {
@@ -36,22 +36,28 @@ void main() {
         Notifier.describe(result), contains('ssh failed: markers are malformed'));
   });
 
-  test('runs osascript with the title and body', () async {
-    final runner = FakeProcessRunner();
+  test('posts the title and body to the native side', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    final sent = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(Notifier.channel, (call) async {
+      sent.add(call);
+      return true;
+    });
 
-    await Notifier(runner).show(title: 'GitSwitcher', body: 'Switched to Work');
+    await const Notifier().show(title: 'GitSwitcher', body: 'Switched "Work"');
 
-    expect(runner.calls.single, contains('/usr/bin/osascript'));
-    expect(
-        runner.calls.single, contains('display notification "Switched to Work"'));
-    expect(runner.calls.single, contains('with title "GitSwitcher"'));
+    expect(sent.single.method, 'show');
+    expect(sent.single.arguments,
+        {'title': 'GitSwitcher', 'body': 'Switched "Work"'});
   });
 
-  test('escapes quotes and backslashes in notification text', () async {
-    final runner = FakeProcessRunner();
+  test('a failure on the native side never escapes', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(Notifier.channel,
+            (_) async => throw PlatformException(code: 'denied'));
 
-    await Notifier(runner).show(title: 'GitSwitcher', body: r'say "hi" \ bye');
-
-    expect(runner.calls.single, contains(r'say \"hi\" \\ bye'));
+    await const Notifier().show(title: 't', body: 'b');
   });
 }
