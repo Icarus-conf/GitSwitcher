@@ -17,11 +17,14 @@ import 'services/managed_block.dart';
 import 'services/notifier.dart';
 import 'services/profile_client.dart';
 import 'services/profile_store.dart';
+import 'services/repo_checker.dart';
+import 'services/repo_cloner.dart';
 import 'services/repo_identity_writer.dart';
 import 'services/ssh_config_writer.dart';
 import 'services/ssh_key_creator.dart';
 import 'services/ssh_tester.dart';
 import 'services/tool_installer.dart';
+import 'services/update_checker.dart';
 
 /// Wires the real implementations together at startup.
 class AppServices {
@@ -36,6 +39,9 @@ class AppServices {
     required this.sshTester,
     required this.tools,
     required this.keys,
+    required this.cloner,
+    required this.repoChecker,
+    required this.updates,
     required this.removedLegacyHook,
     required BinaryLocator locator,
   }) : _locator = locator;
@@ -47,10 +53,11 @@ class AppServices {
   ///
   /// [gh] is passed so an abandoned login cannot leave the wrong account
   /// active.
-  GhLoginSession createLoginSession() => GhLoginSession(
+  GhLoginSession createLoginSession({String? refreshFor}) => GhLoginSession(
         starter: const RealProcessStarter(),
         locator: _locator,
         gh: gh,
+        refreshFor: refreshFor,
       );
 
   final AccountStore store;
@@ -63,6 +70,9 @@ class AppServices {
   final SshTester sshTester;
   final ToolInstaller tools;
   final SshKeyCreator keys;
+  final RepoCloner cloner;
+  final RepoChecker repoChecker;
+  final UpdateChecker updates;
 
   /// True on the first launch after upgrading from the zsh-hook version, so
   /// the user can be told why their folder setup changed.
@@ -120,6 +130,14 @@ class AppServices {
       sshTester: SshTester(runner: runner, locator: locator, home: home),
       tools: ToolInstaller(runner: runner, binDir: binDir),
       keys: SshKeyCreator(runner: runner, locator: locator, home: home),
+      updates: UpdateChecker(),
+      repoChecker:
+          RepoChecker(runner: runner, locator: locator, home: home),
+      cloner: RepoCloner(
+        runner: runner,
+        locator: locator,
+        accountFile: gitConfig.accountFile,
+      ),
       removedLegacyHook: removedLegacyHook,
       locator: locator,
       profiles: ProfileStore(

@@ -18,6 +18,21 @@ class GhAccounts {
   final String? activeUsername;
 }
 
+/// What `gh auth status` says about one account's sign-in.
+class AuthHealth {
+  const AuthHealth({required this.valid, required this.scopes});
+
+  /// False when gh has a token for the account but GitHub rejects it —
+  /// revoked, expired, or the OAuth app was removed.
+  final bool valid;
+  final Set<String> scopes;
+
+  /// Whether "Create SSH key" can add a key for pushing and for signing.
+  bool get canAddKeys =>
+      scopes.contains('admin:public_key') &&
+      scopes.contains('admin:ssh_signing_key');
+}
+
 /// Reads gh's account state and switches the active account.
 ///
 /// Discovery prefers `hosts.yml` because it is structured and stable;
@@ -113,6 +128,52 @@ class GhClient {
     }
 
     return GhAccounts(usernames, activeUsername);
+  }
+
+  /// The sign-in state of every account gh has, keyed by login. Empty when
+  /// gh is missing; a failure here must never break Settings.
+  Future<Map<String, AuthHealth>> authHealth() async {
+    try {
+      final gh = await _locator.locate('gh');
+      final result = await _runner.run(gh, ['auth', 'status', '--hostname', host]);
+      // gh exits non-zero when any account failed, so read output regardless.
+      return parseAuthHealth('${result.stdout}\n${result.stderr}');
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  /// Parses `gh auth status`: a `✓ Logged in to … account X` or
+  /// `X Failed to log in to … account X` line per account, then its details.
+  static Map<String, AuthHealth> parseAuthHealth(String output) {
+    final header = RegExp(
+        r'(Logged in|Failed to log in) to \S+ account (\S+)');
+    final scopesLine = RegExp(r'Token scopes: (.*)');
+    final health = <String, AuthHealth>{};
+    String? current;
+
+    for (final line in output.split('\n')) {
+      final match = header.firstMatch(line);
+      if (match != null) {
+        current = match.group(2)!;
+        health[current] = AuthHealth(
+          valid: match.group(1) == 'Logged in',
+          scopes: const {},
+        );
+        continue;
+      }
+      final scopes = scopesLine.firstMatch(line);
+      if (current != null && scopes != null) {
+        health[current] = AuthHealth(
+          valid: health[current]!.valid,
+          scopes: RegExp(r"'([^']+)'")
+              .allMatches(scopes.group(1)!)
+              .map((m) => m.group(1)!)
+              .toSet(),
+        );
+      }
+    }
+    return health;
   }
 
   Future<StepResult> switchTo(String username) async {

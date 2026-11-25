@@ -62,6 +62,16 @@ Future<void> main() async {
   unawaited(services.tools.updateGh().catchError((_) => null));
   final tray = TrayController(services);
   await tray.start();
+  // Once per launch: a newer GitSwitcher goes in the menu and gets one
+  // notification. Offline or a locally built copy is silently skipped.
+  unawaited(services.updates.check().then((update) async {
+    if (update == null) return;
+    await tray.setUpdate(update);
+    await services.notifier.show(
+      title: 'GitSwitcher ${update.version} is available',
+      body: 'Choose "Update" in the menu to download it.',
+    );
+  }));
 
   runApp(GitSwitcherApp(services: services, tray: tray));
 }

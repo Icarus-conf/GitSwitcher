@@ -230,4 +230,34 @@ github.com
       expect(step.message, contains('gh'));
     });
   });
+
+  group('parseAuthHealth', () {
+    const output = '''
+github.com
+  ✓ Logged in to github.com account octo (keyring)
+  - Active account: true
+  - Token: gho_****
+  - Token scopes: 'gist', 'repo', 'admin:public_key', 'admin:ssh_signing_key'
+
+  X Failed to log in to github.com account hubot (keyring)
+  - Active account: false
+  - The token in keyring is invalid.
+
+  ✓ Logged in to github.com account old (keyring)
+  - Token scopes: 'repo', 'workflow'
+''';
+
+    test('reads each account and whether its token still works', () {
+      final health = GhClient.parseAuthHealth(output);
+      expect(health.keys, ['octo', 'hubot', 'old']);
+      expect(health['octo']!.valid, isTrue);
+      expect(health['hubot']!.valid, isFalse);
+    });
+
+    test('knows which sign-ins can add SSH keys', () {
+      final health = GhClient.parseAuthHealth(output);
+      expect(health['octo']!.canAddKeys, isTrue);
+      expect(health['old']!.canAddKeys, isFalse);
+    });
+  });
 }

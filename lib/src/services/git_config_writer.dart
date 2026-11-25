@@ -57,6 +57,9 @@ class GitConfigWriter {
 
   File get _activeFile => File('${_directory.path}/active.gitconfig');
   Directory get _accountsDir => Directory('${_directory.path}/accounts');
+  /// The include file holding [login]'s identity, key and credentials.
+  File accountFile(String login) => _accountFile(login);
+
   File _accountFile(String login) =>
       File('${_accountsDir.path}/$login.gitconfig');
 
@@ -68,9 +71,7 @@ class GitConfigWriter {
   Future<StepResult> sync(AppConfig config, String? activeUsername) async {
     try {
       final byLogin = {for (final a in config.accounts) a.ghUsername: a};
-      final gh = config.autoSwitchEnabled && config.rules.isNotEmpty
-          ? await _ghPath()
-          : null;
+      final gh = await _ghPath();
       final anySigns = config.accounts.any(_signs);
 
       final rules = config.autoSwitchEnabled
@@ -92,16 +93,23 @@ class GitConfigWriter {
         lines.addAll(['[include]', '\tpath = ${_quote(_path(_activeFile.path))}']);
       }
 
-      final used = <String>{};
+      // One include file per account, whether or not a rule uses it yet:
+      // "Clone as…" points a single repo at the same file.
+      final logins = {
+        ...byLogin.keys,
+        ...config.rules.map((r) => r.ghUsername),
+        ...config.orgRules.map((r) => r.ghUsername),
+      };
+      for (final login in logins) {
+        await _writeIfChanged(
+          _accountFile(login),
+          folderLines(byLogin[login] ?? Account(ghUsername: login),
+              anySigns: anySigns, gh: gh),
+        );
+      }
+
       for (final rule in rules) {
         final login = rule.ghUsername;
-        final account = byLogin[login] ?? Account(ghUsername: login);
-        if (used.add(login)) {
-          await _writeIfChanged(
-            _accountFile(login),
-            folderLines(account, anySigns: anySigns, gh: gh),
-          );
-        }
         final dir = await _realPath(_trimSlash(expandHome(rule.pathPrefix)));
         // Windows paths ignore case, so the match must too.
         final gitdir = Host.current.isWindows ? 'gitdir/i' : 'gitdir';
@@ -110,7 +118,28 @@ class GitConfigWriter {
           '\tpath = ${_quote(_path(_accountFile(login).path))}',
         ]);
       }
-      await _removeStaleAccountFiles(used);
+
+      // After the folder rules, so an organization beats a folder. git
+      // matches the remote URL as a glob, once per form GitHub hands out.
+      if (config.autoSwitchEnabled) {
+        for (final rule in config.orgRules) {
+          // ponytail: the match is case-sensitive; the org as typed and in
+          // lower case cover GitHub's own URLs. Add more spellings if needed.
+          for (final org in {rule.org, rule.org.toLowerCase()}) {
+            for (final url in [
+              'git@github.com:$org/**',
+              'https://github.com/$org/**',
+              'ssh://git@github.com/$org/**',
+            ]) {
+              lines.addAll([
+                '[includeIf ${_quote('hasconfig:remote.*.url:$url')}]',
+                '\tpath = ${_quote(_path(_accountFile(rule.ghUsername).path))}',
+              ]);
+            }
+          }
+        }
+      }
+      await _removeStaleAccountFiles(logins);
 
       final existed = await _gitconfig.exists();
       final existing = existed ? await _gitconfig.readAsString() : '';

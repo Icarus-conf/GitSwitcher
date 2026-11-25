@@ -64,9 +64,15 @@ void main() {
   AppConfig config({
     List<Account> accounts = const [work, client],
     List<DirectoryRule> rules = const [],
+    List<OrgRule> orgRules = const [],
     bool enabled = true,
   }) =>
-      AppConfig(accounts: accounts, rules: rules, autoSwitchEnabled: enabled);
+      AppConfig(
+        accounts: accounts,
+        rules: rules,
+        orgRules: orgRules,
+        autoSwitchEnabled: enabled,
+      );
 
   test('writes nothing when there is nothing to include', () async {
     gitconfig.writeAsStringSync('[user]\n\tname = Me\n');
@@ -209,13 +215,59 @@ void main() {
     expect(out, contains('password=token-for-work-octo'));
   });
 
-  test('removes include files for accounts no longer mapped', () async {
+  test('an org rule applies wherever the repo is cloned', () async {
+    final downloads = repo('Downloads/api');
+    final personal = repo('code/personal/fork');
+    Process.runSync('git',
+        ['-C', downloads, 'remote', 'add', 'origin', 'git@github.com:acme/api.git'],
+        environment: {'HOME': home.path});
+    Process.runSync('git',
+        ['-C', personal, 'remote', 'add', 'origin', 'https://github.com/acme/fork'],
+        environment: {'HOME': home.path});
+
+    await writer.sync(
+      config(
+        rules: [
+          const DirectoryRule(
+              pathPrefix: '~/code/personal', ghUsername: 'client-octo'),
+        ],
+        orgRules: [const OrgRule(org: 'acme', ghUsername: 'work-octo')],
+      ),
+      null,
+    );
+
+    expect(gitGet(downloads, 'user.email'), 'octo@work.example');
+    // The organization beats the folder it happens to be cloned into.
+    expect(gitGet(personal, 'user.email'), 'octo@work.example');
+  });
+
+  test('an org rule leaves other organizations alone', () async {
+    final other = repo('code/other');
+    Process.runSync('git',
+        ['-C', other, 'remote', 'add', 'origin', 'git@github.com:acme-labs/x.git'],
+        environment: {'HOME': home.path});
+
+    await writer.sync(
+      config(orgRules: [const OrgRule(org: 'acme', ghUsername: 'work-octo')]),
+      null,
+    );
+
+    expect(gitGet(other, 'user.email'), isNull);
+  });
+
+  test('OrgRule.parse accepts a pasted URL', () {
+    expect(OrgRule.parse('https://github.com/Acme/repo', 'x').org, 'Acme');
+    expect(OrgRule.parse('git@github.com:acme/r.git', 'x').org, 'acme');
+    expect(OrgRule.parse(' acme ', 'x').isValid, isTrue);
+    expect(OrgRule.parse('not valid!', 'x').isValid, isFalse);
+  });
+
+  test('removes include files for accounts no longer configured', () async {
     final rules = [
       const DirectoryRule(pathPrefix: '~/a', ghUsername: 'work-octo'),
-      const DirectoryRule(pathPrefix: '~/b', ghUsername: 'client-octo'),
     ];
     await writer.sync(config(rules: rules), null);
-    await writer.sync(config(rules: rules.take(1).toList()), null);
+    await writer.sync(config(accounts: const [work], rules: rules), null);
 
     final names = Directory('${home.path}/Support Dir/git/accounts')
         .listSync()
