@@ -7,38 +7,45 @@ import 'dart:io';
 /// markers are ever touched, a backup precedes any modification, and damaged
 /// markers abort the write instead of guessing.
 class ManagedBlock {
-  const ManagedBlock({required this.beginMarker, required this.endMarker});
+  const ManagedBlock({
+    required this.beginMarker,
+    required this.endMarker,
+    this.atStart = false,
+  });
 
   final String beginMarker;
   final String endMarker;
+
+  /// Where the block lives. Position matters in both files we manage: ssh uses
+  /// the first value it reads (and tries IdentityFiles in order), while git
+  /// lets the last value win. So the block is moved to its end of the file on
+  /// every write, not just placed there once.
+  final bool atStart;
 
   /// Wraps [body] in this block's markers.
   String render(List<String> body) =>
       [beginMarker, ...body, endMarker].join('\n');
 
-  /// Returns [existing] with the managed region replaced by [block].
+  /// Returns [existing] with the managed region replaced by [block], placed at
+  /// the start or end of the file according to [atStart].
   ///
   /// Throws [FormatException] if the markers are present but unusable.
   String replaceIn(String existing, String block) {
     final beginIndex = existing.indexOf(beginMarker);
     final endIndex = existing.indexOf(endMarker);
 
-    if (beginIndex == -1 && endIndex == -1) {
-      if (existing.isEmpty) return '$block\n';
-      final separator = existing.endsWith('\n') ? '\n' : '\n\n';
-      return '$existing$separator$block\n';
-    }
-
-    if (beginIndex == -1 || endIndex == -1 || endIndex < beginIndex) {
+    if ((beginIndex == -1) != (endIndex == -1) || endIndex < beginIndex) {
       throw const FormatException(
         'The GitSwitcher markers in this file are malformed. '
         'Nothing was written — please repair the file by hand.',
       );
     }
 
-    return existing.substring(0, beginIndex) +
-        block +
-        existing.substring(endIndex + endMarker.length);
+    final rest = removeFrom(existing);
+    if (rest.isEmpty) return '$block\n';
+    if (atStart) return '$block\n\n$rest';
+    final separator = rest.endsWith('\n') ? '\n' : '\n\n';
+    return '$rest$separator$block\n';
   }
 
   /// Returns [existing] with the managed region and its markers removed.
@@ -66,16 +73,38 @@ class ManagedBlock {
   bool isPresentIn(String existing) => existing.contains(beginMarker);
 }
 
-/// Writes a timestamped copy of a file before it is modified.
+/// Writes a timestamped copy of a file before it is modified, keeping only
+/// the newest [keep] copies so backups do not pile up forever.
 class BackupWriter {
-  const BackupWriter({this.now = DateTime.now});
+  const BackupWriter({this.now = DateTime.now, this.keep = 5});
 
   final DateTime Function() now;
+  final int keep;
 
   Future<File> write(File file, String contents) async {
     final stamp = now().millisecondsSinceEpoch;
     final backup = File('${file.path}.gitswitcher-backup-$stamp');
     await backup.writeAsString(contents);
+    await _prune(file);
     return backup;
+  }
+
+  Future<void> _prune(File file) async {
+    final prefix = '${file.path}.gitswitcher-backup-';
+    final backups = await file.parent
+        .list()
+        .where((e) => e is File && e.path.startsWith(prefix))
+        .map((e) => e.path)
+        .toList();
+    int stampOf(String path) =>
+        int.tryParse(path.substring(prefix.length)) ?? 0;
+    backups.sort((a, b) => stampOf(b).compareTo(stampOf(a)));
+    for (final old in backups.skip(keep)) {
+      try {
+        await File(old).delete();
+      } on FileSystemException {
+        // A backup we cannot delete is harmless; try again next time.
+      }
+    }
   }
 }

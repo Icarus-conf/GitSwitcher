@@ -7,10 +7,12 @@ import '../app_services.dart';
 import '../models/account.dart';
 import '../models/app_config.dart';
 import '../models/directory_rule.dart';
+import '../models/switch_result.dart';
 import 'theme/glass.dart';
 import 'widgets/glass_slab.dart';
 
-/// Settings panel for directory-based automatic switching.
+/// Settings panel for per-folder identities, applied through git's own
+/// `includeIf` so they hold in every terminal and editor at once.
 class AutoSwitchSection extends StatefulWidget {
   const AutoSwitchSection({
     super.key,
@@ -29,7 +31,6 @@ class AutoSwitchSection extends StatefulWidget {
 
 class _AutoSwitchSectionState extends State<AutoSwitchSection> {
   AppConfig _config = const AppConfig();
-  bool _hookInstalled = false;
   bool _loading = true;
 
   @override
@@ -40,49 +41,31 @@ class _AutoSwitchSectionState extends State<AutoSwitchSection> {
 
   Future<void> _reload() async {
     final config = await widget.services.store.loadConfig();
-    final installed = await widget.services.hooks.isInstalled();
     if (!mounted) return;
     setState(() {
       _config = config;
-      _hookInstalled = installed;
       _loading = false;
     });
   }
 
+  /// Saves, then rewrites ~/.gitconfig to match. A failed rewrite is reported
+  /// rather than swallowed: the rule would look active while doing nothing.
   Future<void> _update(AppConfig config) async {
-    await widget.services.store.saveConfig(config);
-    if (!mounted) return;
-    setState(() => _config = config);
-  }
-
-  Future<void> _setEnabled(bool enabled) async {
-    await _update(_config.copyWith(autoSwitchEnabled: enabled));
-    if (enabled && !_hookInstalled) await _installHook();
-  }
-
-  Future<void> _installHook() async {
     try {
-      await widget.services.hooks.install();
-      await _reload();
-      widget.onMessage(
-        'Shell hook installed. Open a new terminal tab for it to take effect.',
-      );
-    } on FormatException catch (error) {
-      widget.onMessage(error.message, isError: true);
+      await widget.services.store.saveConfig(config);
+      if (mounted) setState(() => _config = config);
+      final step = await widget.services.syncGitConfig();
+      if (step.status == StepStatus.failed) {
+        widget.onMessage('Could not update ~/.gitconfig: ${step.message}',
+            isError: true);
+      }
     } catch (error) {
-      widget.onMessage('Could not edit ~/.zshrc: $error', isError: true);
+      widget.onMessage('Could not save: $error', isError: true);
     }
   }
 
-  Future<void> _removeHook() async {
-    try {
-      await widget.services.hooks.uninstall();
-      await _reload();
-      widget.onMessage('Shell hook removed from ~/.zshrc.');
-    } catch (error) {
-      widget.onMessage('Could not edit ~/.zshrc: $error', isError: true);
-    }
-  }
+  Future<void> _setEnabled(bool enabled) =>
+      _update(_config.copyWith(autoSwitchEnabled: enabled));
 
   Future<void> _addRule() async {
     if (widget.accounts.isEmpty) return;
@@ -136,10 +119,12 @@ class _AutoSwitchSectionState extends State<AutoSwitchSection> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Switch by folder', style: Glass.display(context)),
+                    Text('Identity by folder', style: Glass.display(context)),
                     const SizedBox(height: 3),
                     Text(
-                      'Changes account when your terminal enters a folder.',
+                      'Repos inside a folder commit, sign and push as its '
+                      'account — in every terminal and editor. The menu '
+                      'account and gh are not changed.',
                       style: Glass.body(context, size: 12),
                     ),
                   ],
@@ -149,31 +134,6 @@ class _AutoSwitchSectionState extends State<AutoSwitchSection> {
                 value: _config.autoSwitchEnabled,
                 onChanged: _setEnabled,
                 activeThumbColor: Glass.live,
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Icon(
-                _hookInstalled ? Icons.check_circle_outline : Icons.terminal,
-                size: 14,
-                color: _hookInstalled
-                    ? Glass.live
-                    : Glass.secondaryText(context),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  _hookInstalled
-                      ? 'Shell hook installed in ~/.zshrc'
-                      : 'Shell hook not installed',
-                  style: Glass.mono(context, size: 11.5),
-                ),
-              ),
-              _MiniButton(
-                label: _hookInstalled ? 'Remove hook' : 'Install hook',
-                onPressed: _hookInstalled ? _removeHook : _installHook,
               ),
             ],
           ),
@@ -191,7 +151,7 @@ class _AutoSwitchSectionState extends State<AutoSwitchSection> {
           const SizedBox(height: 8),
           if (_config.rules.isEmpty)
             Text(
-              'No rules yet. Nothing switches automatically until you add one.',
+              'No folders yet. Add one to give its repos their own identity.',
               style: Glass.body(context, size: 12),
             )
           else

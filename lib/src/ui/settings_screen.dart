@@ -104,11 +104,18 @@ class _SettingsScreenState extends State<SettingsScreen> with WindowListener {
       }
 
       await widget.services.store.save(stored);
+      // Folder rules and signing read these fields from ~/.gitconfig's block.
+      final step = await widget.services.syncGitConfig();
       await widget.tray.refreshMenu();
       await _reload();
 
       if (!mounted) return;
-      _tell('Saved ${updated.displayName}');
+      if (step.status == StepStatus.failed) {
+        _tell('Saved, but ~/.gitconfig was not updated: ${step.message}',
+            isError: true);
+      } else {
+        _tell('Saved ${updated.displayName}');
+      }
     } catch (error) {
       if (!mounted) return;
       _tell('Could not save: $error', isError: true);
@@ -153,6 +160,16 @@ class _SettingsScreenState extends State<SettingsScreen> with WindowListener {
       _tell('$folder now commits as ${account.displayName}');
     } else {
       _tell(step.message ?? 'Could not set the repo identity', isError: true);
+    }
+  }
+
+  Future<void> _testSsh(Account account) async {
+    final step = await widget.services.sshTester.test(account);
+    if (!mounted) return;
+    if (step.status == StepStatus.ok) {
+      _tell('GitHub accepts this key as ${account.ghUsername}.');
+    } else {
+      _tell(step.message ?? 'SSH test failed', isError: true);
     }
   }
 
@@ -216,11 +233,27 @@ class _SettingsScreenState extends State<SettingsScreen> with WindowListener {
       );
     }
 
-    if (_accounts.isEmpty) return const _EmptyState();
+    final setup = _SetupSlab(
+      services: widget.services,
+      onMessage: (message, {bool isError = false}) =>
+          _tell(message, isError: isError),
+      onInstalled: () async {
+        await _reload();
+        await widget.tray.refreshMenu();
+      },
+    );
+
+    if (_accounts.isEmpty) {
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(18, 4, 18, 24),
+        children: [setup, const _EmptyState()],
+      );
+    }
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(18, 4, 18, 24),
       children: [
+        setup,
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 10),
           child: Text('IDENTITIES', style: Glass.eyebrow(context)),
@@ -234,6 +267,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WindowListener {
             accent: Glass.accentFor(i),
             onSave: _save,
             onApplyToRepo: _applyToRepo,
+            onTestSsh: _testSsh,
           ),
           const SizedBox(height: Glass.gutter),
         ],
@@ -253,6 +287,129 @@ class _SettingsScreenState extends State<SettingsScreen> with WindowListener {
               _tell(message, isError: isError),
         ),
       ],
+    );
+  }
+}
+
+/// Installs what GitSwitcher drives — gh and git — when either is missing.
+/// Invisible once both are present.
+class _SetupSlab extends StatefulWidget {
+  const _SetupSlab({
+    required this.services,
+    required this.onMessage,
+    required this.onInstalled,
+  });
+
+  final AppServices services;
+  final void Function(String message, {bool isError}) onMessage;
+  final Future<void> Function() onInstalled;
+
+  @override
+  State<_SetupSlab> createState() => _SetupSlabState();
+}
+
+class _SetupSlabState extends State<_SetupSlab> {
+  bool? _gh;
+  bool? _git;
+  bool _installingGh = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+  }
+
+  Future<void> _check() async {
+    final gh = await widget.services.gh.isInstalled();
+    final git = await widget.services.tools.gitInstalled();
+    if (!mounted) return;
+    setState(() {
+      _gh = gh;
+      _git = git;
+    });
+  }
+
+  Future<void> _installGh() async {
+    setState(() => _installingGh = true);
+    try {
+      final version = await widget.services.tools.installGh();
+      widget.onMessage('GitHub CLI $version installed. Add an account next.');
+      await _check();
+      await widget.onInstalled();
+    } catch (error) {
+      widget.onMessage('Could not install the GitHub CLI: $error',
+          isError: true);
+    } finally {
+      if (mounted) setState(() => _installingGh = false);
+    }
+  }
+
+  Future<void> _installGit() async {
+    await widget.services.tools.installGit();
+    widget.onMessage(
+        "Follow Apple's installer, then press Check again when it finishes.");
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_gh == null || (_gh! && _git!)) return const SizedBox.shrink();
+
+    Widget row(String name, String why, bool ok, Widget action) => Padding(
+          padding: const EdgeInsets.only(top: 10),
+          child: Row(
+            children: [
+              Icon(ok ? Icons.check_circle_outline : Icons.download_outlined,
+                  size: 16,
+                  color: ok ? Glass.live : Glass.secondaryText(context)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name, style: Glass.mono(context)),
+                    Text(why, style: Glass.body(context, size: 12)),
+                  ],
+                ),
+              ),
+              if (!ok) action,
+            ],
+          ),
+        );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Glass.gutter),
+      child: GlassSlab(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                    child: Text('Finish setting up',
+                        style: Glass.display(context))),
+                TextButton(onPressed: _check, child: const Text('Check again')),
+              ],
+            ),
+            row(
+              'GitHub CLI (gh)',
+              'Switches accounts and signs you in. Downloaded from GitHub '
+                  'and checked before it runs.',
+              _gh!,
+              FilledButton(
+                onPressed: _installingGh ? null : _installGh,
+                child: Text(_installingGh ? 'Installing…' : 'Install'),
+              ),
+            ),
+            row(
+              'git',
+              "Sets your commit identity. Installed by Apple's Command Line "
+                  'Tools; takes a few minutes.',
+              _git!,
+              FilledButton(onPressed: _installGit, child: const Text('Install')),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -442,13 +599,11 @@ class _EmptyState extends StatelessWidget {
             Text('No identities yet', style: Glass.display(context, size: 19)),
             const SizedBox(height: 8),
             Text(
-              'Add a GitHub account to start switching, or run this in a '
-              'terminal:',
+              'Press + above to sign in to a GitHub account. Add one for '
+              'each account you want to switch between.',
               textAlign: TextAlign.center,
               style: Glass.body(context),
             ),
-            const SizedBox(height: 10),
-            Text('gh auth login', style: Glass.mono(context, size: 13)),
           ],
         ),
       ),

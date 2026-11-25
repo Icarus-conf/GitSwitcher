@@ -18,13 +18,13 @@ class TrayController with TrayListener {
 
   static const String _settingsKey = '__settings';
   static const String _quitKey = '__quit';
+  static const String _installKey = '__install';
 
   StreamSubscription<void>? _profileSubscription;
-  StreamSubscription<String>? _directorySubscription;
 
   final _switched = StreamController<void>.broadcast();
 
-  /// Fires after any switch, manual or automatic.
+  /// Fires after any switch from the menu.
   ///
   /// The settings window renders which account is active, so it has to be told
   /// when that changes — otherwise it keeps showing the previous account as
@@ -39,46 +39,17 @@ class TrayController with TrayListener {
     _profileSubscription = _services.profiles.changes.listen((_) {
       refreshMenu();
     });
-    _directorySubscription =
-        _services.watcher.directories.listen(_onDirectoryChanged);
-    _services.watcher.start();
     await refreshMenu();
   }
 
   void dispose() {
     _profileSubscription?.cancel();
-    _directorySubscription?.cancel();
     _switched.close();
-    _services.watcher.stop();
     trayManager.removeListener(this);
   }
 
   void _announceSwitch() {
     if (!_switched.isClosed) _switched.add(null);
-  }
-
-  /// The shell reported a new working directory.
-  ///
-  /// The policy decides whether anything should happen; this only performs the
-  /// switch it is told to. Auto-switches are announced, because a silent change
-  /// to which account you are pushing as would be alarming to discover later.
-  Future<void> _onDirectoryChanged(String directory) async {
-    final config = await _services.store.loadConfig();
-    final discovered = await _services.gh.discover();
-
-    final target = _services.policy.accountFor(
-      directory: directory,
-      enabled: config.autoSwitchEnabled,
-      rules: config.rules,
-      accounts: config.accounts,
-      activeUsername: discovered.activeUsername,
-    );
-    if (target == null) return;
-
-    final result = await _services.switcher.switchTo(target);
-    await _services.notifier.showSwitchResult(result, target.displayName);
-    await refreshMenu();
-    _announceSwitch();
   }
 
   @override
@@ -96,6 +67,13 @@ class TrayController with TrayListener {
       discovered: await _services.gh.discover(),
     );
 
+    // The active account's name next to the icon, so you never have to open
+    // the menu to find out who you are about to push as.
+    final active = resolved.where((r) => r.isActive).firstOrNull;
+    await trayManager.setTitle(
+      active == null ? '' : ' ${active.account.displayName}',
+    );
+
     final items = <MenuItem>[];
 
     if (resolved.isEmpty) {
@@ -106,13 +84,10 @@ class TrayController with TrayListener {
         label: ghInstalled ? 'No GitHub accounts found' : 'GitHub CLI not found',
         disabled: true,
       ));
-      items.add(MenuItem(
-        key: '__hint',
-        label: ghInstalled
-            ? 'Run: gh auth login'
-            : 'Install it from cli.github.com',
-        disabled: true,
-      ));
+      items.add(ghInstalled
+          ? MenuItem(key: '__hint', label: 'Run: gh auth login', disabled: true)
+          // Settings installs it, with progress and errors it can show.
+          : MenuItem(key: _installKey, label: 'Install GitHub CLI…'));
     } else {
       for (final entry in resolved) {
         final note = entry.disabledReason ?? entry.setupHint;
@@ -147,7 +122,7 @@ class TrayController with TrayListener {
   @override
   void onTrayMenuItemClick(MenuItem menuItem) {
     switch (menuItem.key) {
-      case _settingsKey:
+      case _settingsKey || _installKey:
         SettingsWindow.open();
       case _quitKey:
         trayManager.destroy().then((_) => exit(0));
