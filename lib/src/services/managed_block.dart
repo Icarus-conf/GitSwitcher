@@ -90,14 +90,18 @@ class BackupWriter {
   }
 
   Future<void> _prune(File file) async {
-    final prefix = '${file.path}.gitswitcher-backup-';
+    // Compared by file name, not full path: on Windows a listing spells the
+    // folder with `\` even when [file] was built with `/`, so a full-path
+    // prefix would never match and nothing would ever be pruned.
+    final prefix = '${file.uri.pathSegments.last}.gitswitcher-backup-';
+    String nameOf(String path) => File(path).uri.pathSegments.last;
     final backups = await file.parent
         .list()
-        .where((e) => e is File && e.path.startsWith(prefix))
+        .where((e) => e is File && nameOf(e.path).startsWith(prefix))
         .map((e) => e.path)
         .toList();
     int stampOf(String path) =>
-        int.tryParse(path.substring(prefix.length)) ?? 0;
+        int.tryParse(nameOf(path).substring(prefix.length)) ?? 0;
     backups.sort((a, b) => stampOf(b).compareTo(stampOf(a)));
     for (final old in backups.skip(keep)) {
       try {
