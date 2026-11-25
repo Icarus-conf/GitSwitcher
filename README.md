@@ -31,13 +31,22 @@ button for each:
 
 - **gh** is downloaded from its official GitHub release into the app's own
   folder and checked against the SHA-256 GitHub publishes. No admin password
-  or Homebrew needed. A gh you installed yourself is always preferred.
+  or Homebrew needed, and it's updated when a new release is out. A gh you
+  installed yourself is always preferred and never touched.
 - **git** opens Apple's Command Line Tools installer.
 
 Then press **+** in Settings to sign in to each account (or run
-`gh auth login`). Every account `gh` knows about
-gets a card. Fill in a label, your git name and email, and the path to that
-account's SSH key.
+`gh auth login`). Every account `gh` knows about gets a card. Fill in a label
+and your git name and email.
+
+For the SSH key, press **Create SSH key**: it makes a key for that account
+(`~/.ssh/gitswitcher_<login>`, no passphrase, so GUI git clients can use it)
+and adds it to GitHub for pushing and for signing. Accounts signed in before
+this version lack the permission to add keys; for those the key is copied
+and GitHub's page opens for you to paste it. Or point the card at a key you
+already have.
+
+**⌃⌥⌘G** opens the menu from anywhere.
 
 You don't have to fill anything in. An empty account still switches your active
 `gh` account, which is enough on its own if you use HTTPS remotes.
@@ -50,8 +59,9 @@ the right email on your commits.
 
 **Identity by folder** gives every repo under a folder its own account —
 `~/work` to your work account, say. Commits there use that account's name and
-email (and signing key), and pushes use its SSH key, in every terminal, editor
-and git GUI at once. It uses git's own `includeIf`, so two terminals in
+email (and signing key), and pushes use its SSH key — or, for HTTPS remotes,
+its gh token — in every terminal, editor and git GUI at once. The menu lists
+your folders. It uses git's own `includeIf`, so two terminals in
 different folders never fight. The menu's account and `gh` don't change.
 
 **Sign commits** (per account) signs with the account's SSH key. Add the same

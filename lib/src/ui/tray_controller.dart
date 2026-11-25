@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:tray_manager/tray_manager.dart';
 
 import '../app_services.dart';
@@ -39,6 +40,10 @@ class TrayController with TrayListener {
     _profileSubscription = _services.profiles.changes.listen((_) {
       refreshMenu();
     });
+    // ⌃⌥⌘G, registered in MainFlutterWindow.swift, opens the menu.
+    const MethodChannel('gitswitcher/hotkey').setMethodCallHandler((call) async {
+      if (call.method == 'pressed') onTrayIconMouseDown();
+    });
     await refreshMenu();
   }
 
@@ -62,8 +67,9 @@ class TrayController with TrayListener {
   void onTrayIconRightMouseDown() => onTrayIconMouseDown();
 
   Future<void> refreshMenu() async {
+    final config = await _services.store.loadConfig();
     final resolved = AccountResolver.merge(
-      stored: await _services.store.load(),
+      stored: List.of(config.accounts),
       discovered: await _services.gh.discover(),
     );
 
@@ -110,9 +116,29 @@ class TrayController with TrayListener {
       );
     }
 
+    // Why commits in some folders use another identity than the one ticked.
+    if (config.autoSwitchEnabled && config.rules.isNotEmpty) {
+      final names = {
+        for (final r in resolved) r.account.ghUsername: r.account.displayName,
+      };
+      final home = Platform.environment['HOME'] ?? '';
+      items.add(MenuItem.separator());
+      items.add(MenuItem(key: '__folders', label: 'Folders', disabled: true));
+      for (final rule in config.rules) {
+        final path = home.isNotEmpty && rule.pathPrefix.startsWith(home)
+            ? '~${rule.pathPrefix.substring(home.length)}'
+            : rule.pathPrefix;
+        items.add(MenuItem(
+          key: '__rule_${rule.pathPrefix}',
+          label: '$path → ${names[rule.ghUsername] ?? rule.ghUsername}',
+          disabled: true,
+        ));
+      }
+    }
+
     items.addAll([
       MenuItem.separator(),
-      MenuItem(key: _settingsKey, label: 'Settings…'),
+      MenuItem(key: _settingsKey, label: 'Settings…', toolTip: '⌃⌥⌘G opens this menu'),
       MenuItem(key: _quitKey, label: 'Quit GitSwitcher'),
     ]);
 

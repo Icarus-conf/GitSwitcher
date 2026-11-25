@@ -18,6 +18,7 @@ import 'services/profile_client.dart';
 import 'services/profile_store.dart';
 import 'services/repo_identity_writer.dart';
 import 'services/ssh_config_writer.dart';
+import 'services/ssh_key_creator.dart';
 import 'services/ssh_tester.dart';
 import 'services/tool_installer.dart';
 
@@ -33,6 +34,8 @@ class AppServices {
     required this.gitConfig,
     required this.sshTester,
     required this.tools,
+    required this.keys,
+    required this.removedLegacyHook,
     required BinaryLocator locator,
   }) : _locator = locator;
 
@@ -58,6 +61,11 @@ class AppServices {
   final GitConfigWriter gitConfig;
   final SshTester sshTester;
   final ToolInstaller tools;
+  final SshKeyCreator keys;
+
+  /// True on the first launch after upgrading from the zsh-hook version, so
+  /// the user can be told why their folder setup changed.
+  final bool removedLegacyHook;
 
   /// Rewrites the git config block for the current settings. Called whenever
   /// accounts or folder rules change, not only on a switch.
@@ -79,7 +87,7 @@ class AppServices {
       searchDirs: [...kBinarySearchDirs, binDir.path],
     );
     final store = AccountStore(File('${supportDir.path}/accounts.json'));
-    await _removeLegacyShellHook(
+    final removedLegacyHook = await _removeLegacyShellHook(
       zshrc: File('$home/.zshrc'),
       stateFile: File('${supportDir.path}/cwd'),
     );
@@ -87,6 +95,13 @@ class AppServices {
       gitconfig: File('$home/.gitconfig'),
       directory: Directory('${supportDir.path}/git'),
       home: home,
+      ghPath: () async {
+        try {
+          return await locator.locate('gh');
+        } on BinaryNotFoundException {
+          return null;
+        }
+      },
     );
 
     final gh = GhClient(
@@ -103,6 +118,8 @@ class AppServices {
       gitConfig: gitConfig,
       sshTester: SshTester(runner: runner, home: home),
       tools: ToolInstaller(runner: runner, binDir: binDir),
+      keys: SshKeyCreator(runner: runner, locator: locator, home: home),
+      removedLegacyHook: removedLegacyHook,
       locator: locator,
       profiles: ProfileStore(
         client: ProfileClient(runner: runner, locator: locator),
@@ -126,7 +143,8 @@ class AppServices {
   /// Folder rules used to work through a zsh hook. git's own includeIf
   /// replaced it, so take the old hook back out of `~/.zshrc` for anyone
   /// upgrading. Best effort: a failure here must not stop the app starting.
-  static Future<void> _removeLegacyShellHook({
+  /// Returns true when a hook was found and removed.
+  static Future<bool> _removeLegacyShellHook({
     required File zshrc,
     required File stateFile,
   }) async {
@@ -136,14 +154,16 @@ class AppServices {
     );
     try {
       if (await stateFile.exists()) await stateFile.delete();
-      if (!await zshrc.exists()) return;
+      if (!await zshrc.exists()) return false;
       final existing = await zshrc.readAsString();
       final updated = block.removeFrom(existing);
-      if (updated == existing) return;
+      if (updated == existing) return false;
       await const BackupWriter().write(zshrc, existing);
       await zshrc.writeAsString(updated);
+      return true;
     } on FileSystemException {
       // Leave it; the hook only writes a file nobody reads any more.
+      return false;
     }
   }
 }

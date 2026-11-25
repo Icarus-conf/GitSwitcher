@@ -19,15 +19,25 @@ class CommandResult {
 
 /// Indirection over process execution so every consumer is unit-testable.
 abstract class ProcessRunner {
-  Future<CommandResult> run(String executable, List<String> arguments);
+  /// [environment] is added to this app's own environment.
+  Future<CommandResult> run(
+    String executable,
+    List<String> arguments, {
+    Map<String, String>? environment,
+  });
 }
 
 class RealProcessRunner implements ProcessRunner {
   const RealProcessRunner();
 
   @override
-  Future<CommandResult> run(String executable, List<String> arguments) async {
-    final result = await Process.run(executable, arguments);
+  Future<CommandResult> run(
+    String executable,
+    List<String> arguments, {
+    Map<String, String>? environment,
+  }) async {
+    final result =
+        await Process.run(executable, arguments, environment: environment);
     return CommandResult(
       result.exitCode,
       (result.stdout as String).trim(),

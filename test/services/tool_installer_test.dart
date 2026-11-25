@@ -83,6 +83,23 @@ void main() {
     );
   });
 
+  test('updates an outdated gh it installed, and leaves a current one', () async {
+    await installer().installGh(); // installs a gh reporting 9.9.9...
+    File('${temp.path}/bin/gh')
+        .writeAsStringSync('#!/bin/sh\necho gh version 1.0.0 \\(x\\)\n');
+
+    expect(await installer().updateGh(), 'v9.9.9');
+
+    File('${temp.path}/bin/gh')
+        .writeAsStringSync('#!/bin/sh\necho gh version 9.9.9 \\(x\\)\n');
+    expect(await installer().updateGh(), isNull);
+  });
+
+  test('never touches a gh it did not install', () async {
+    expect(await installer().updateGh(), isNull);
+    expect(File('${temp.path}/bin/gh').existsSync(), isFalse);
+  });
+
   group('gitInstalled', () {
     test('the /usr/bin stub alone does not count', () async {
       final tools = ToolInstaller(

@@ -161,6 +161,47 @@ void main() {
     expect(gitGet(clientRepo, 'commit.gpgsign'), 'false');
   });
 
+  test('HTTPS in a folder gets that account\'s token from gh, not the menu\'s',
+      () async {
+    // A stand-in gh that answers `auth token --user X` with "token-for-X".
+    final gh = File('${home.path}/bin dir/gh')..createSync(recursive: true);
+    gh.writeAsStringSync('#!/bin/sh\n'
+        'while [ "\$1" != --user ]; do shift; done; echo "token-for-\$2"\n');
+    Process.runSync('/bin/chmod', ['755', gh.path]);
+    // gh's own helper, as `gh auth setup-git` leaves it: always the menu account.
+    gitconfig.writeAsStringSync('[credential "https://github.com"]\n'
+        '\thelper = !echo username=menu-account; echo password=wrong #\n');
+    final inside = repo('code/work/api');
+
+    await GitConfigWriter(
+      gitconfig: gitconfig,
+      directory: Directory('${home.path}/Support Dir/git'),
+      home: home.path,
+      ghPath: () async => gh.path,
+    ).sync(
+      config(rules: [
+        const DirectoryRule(pathPrefix: '~/code/work', ghUsername: 'work-octo'),
+      ]),
+      null,
+    );
+
+    final fill = await Process.start(
+      'git',
+      ['-C', inside, 'credential', 'fill'],
+      environment: {
+        'HOME': home.path,
+        'GIT_CONFIG_NOSYSTEM': '1',
+        'GIT_TERMINAL_PROMPT': '0',
+      },
+    );
+    fill.stdin.write('protocol=https\nhost=github.com\n\n');
+    await fill.stdin.close();
+    final out = await fill.stdout.transform(const SystemEncoding().decoder).join();
+
+    expect(out, contains('username=work-octo'));
+    expect(out, contains('password=token-for-work-octo'));
+  });
+
   test('removes include files for accounts no longer mapped', () async {
     final rules = [
       const DirectoryRule(pathPrefix: '~/a', ghUsername: 'work-octo'),

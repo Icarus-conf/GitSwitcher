@@ -16,10 +16,18 @@ class FakeProcessRunner implements ProcessRunner {
   /// Every command line this runner was asked to execute, in order.
   final List<String> calls = [];
 
+  /// The environment passed with each call, in the same order as [calls].
+  final List<Map<String, String>?> environments = [];
+
   @override
-  Future<CommandResult> run(String executable, List<String> arguments) async {
+  Future<CommandResult> run(
+    String executable,
+    List<String> arguments, {
+    Map<String, String>? environment,
+  }) async {
     final commandLine = [executable, ...arguments].join(' ');
     calls.add(commandLine);
+    environments.add(environment);
     return responses[commandLine] ?? fallback;
   }
 }

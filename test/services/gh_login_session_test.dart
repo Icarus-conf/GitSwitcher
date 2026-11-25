@@ -94,7 +94,7 @@ void main() {
       '--git-protocol',
       'https',
       '--scopes',
-      'workflow',
+      'workflow,admin:public_key,admin:ssh_signing_key',
       '--skip-ssh-key',
       '--web',
     ]);
