@@ -172,7 +172,9 @@ void main() {
     final gh = File('${home.path}/bin dir/gh')..createSync(recursive: true);
     gh.writeAsStringSync('#!/bin/sh\n'
         'while [ "\$1" != --user ]; do shift; done; echo "token-for-\$2"\n');
-    Process.runSync('/bin/chmod', ['755', gh.path]);
+    // Git for Windows runs helpers through its own sh, which honours the
+    // shebang without an execute bit; only macOS needs one.
+    if (!Platform.isWindows) Process.runSync('/bin/chmod', ['755', gh.path]);
     // gh's own helper, as `gh auth setup-git` leaves it: always the menu account.
     gitconfig.writeAsStringSync('[credential "https://github.com"]\n'
         '\thelper = !echo username=menu-account; echo password=wrong #\n');
