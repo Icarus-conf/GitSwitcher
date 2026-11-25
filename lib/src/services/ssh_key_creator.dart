@@ -87,6 +87,20 @@ class SshKeyCreator {
     );
   }
 
+  /// Adds the account's existing key to GitHub, for a key GitHub no longer
+  /// accepts. Same result shape as [create].
+  Future<CreatedKey> upload(Account account) async {
+    final file = expandTilde(account.sshKeyPath, _home);
+    final publicKey = (await File('$file.pub').readAsString()).trim();
+    final problem = await _upload(account.ghUsername, '$file.pub');
+    return CreatedKey(
+      path: account.sshKeyPath,
+      publicKey: publicKey,
+      uploaded: problem == null,
+      problem: problem,
+    );
+  }
+
   /// Returns null on success, or why the key could not be added.
   Future<String?> _upload(String login, String publicKeyFile) async {
     final String gh;

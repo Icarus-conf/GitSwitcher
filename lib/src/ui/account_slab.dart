@@ -9,6 +9,15 @@ import '../services/profile_store.dart';
 import 'theme/glass.dart';
 import 'widgets/glass_slab.dart';
 
+/// Something wrong with an account that the user can usually fix in a click.
+class AccountIssue {
+  const AccountIssue(this.message, {this.fixLabel, this.onFix});
+
+  final String message;
+  final String? fixLabel;
+  final Future<void> Function()? onFix;
+}
+
 /// One identity, rendered as a slab that is lit when the account is active.
 class AccountSlab extends StatefulWidget {
   const AccountSlab({
@@ -20,6 +29,7 @@ class AccountSlab extends StatefulWidget {
     required this.onApplyToRepo,
     required this.onTestSsh,
     required this.onCreateKey,
+    this.issues = const [],
   });
 
   final ResolvedAccount resolved;
@@ -29,6 +39,7 @@ class AccountSlab extends StatefulWidget {
   final Future<void> Function(Account) onApplyToRepo;
   final Future<void> Function(Account) onTestSsh;
   final Future<void> Function(Account) onCreateKey;
+  final List<AccountIssue> issues;
 
   @override
   State<AccountSlab> createState() => _AccountSlabState();
@@ -41,6 +52,10 @@ class _AccountSlabState extends State<AccountSlab> {
   late final TextEditingController _sshKeyPath;
   late bool _signCommits;
   bool _editing = false;
+
+  /// Set when empty fields were filled from GitHub, to explain where they
+  /// came from before the user saves them.
+  bool _prefilled = false;
   bool _testing = false;
   bool _creating = false;
 
@@ -73,6 +88,37 @@ class _AccountSlabState extends State<AccountSlab> {
       signCommits: _signCommits,
     ));
     if (mounted) setState(() => _editing = false);
+  }
+
+  /// Opens the editor, filling an empty name and email from the GitHub
+  /// profile. Nothing is saved until the user presses Save.
+  void _startEditing() {
+    final profile = widget.profile?.profile;
+    var filled = false;
+    if (profile != null) {
+      if (_gitName.text.isEmpty && (profile.name ?? '').isNotEmpty) {
+        _gitName.text = profile.name!;
+        filled = true;
+      }
+      if (_gitEmail.text.isEmpty && profile.noreplyEmail != null) {
+        _gitEmail.text = profile.noreplyEmail!;
+        filled = true;
+      }
+    }
+    setState(() {
+      _editing = true;
+      _prefilled = filled;
+    });
+  }
+
+  /// One click for an account with no identity yet: GitHub's name and
+  /// noreply address, saved straight away.
+  Future<void> _fillFromGitHub() async {
+    final profile = widget.profile!.profile;
+    await widget.onSave(widget.resolved.account.copyWith(
+      gitName: (profile.name ?? '').isNotEmpty ? profile.name : profile.login,
+      gitEmail: profile.noreplyEmail,
+    ));
   }
 
   Future<void> _handleCreateKey() async {
@@ -138,6 +184,21 @@ class _AccountSlabState extends State<AccountSlab> {
             const SizedBox(height: 12),
             _Problem(text: blocked),
           ],
+          for (final issue in widget.issues) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(child: _Problem(text: issue.message)),
+                if (issue.onFix != null) ...[
+                  const SizedBox(width: 8),
+                  _QuietButton(
+                    label: issue.fixLabel ?? 'Fix',
+                    onPressed: () => issue.onFix!(),
+                  ),
+                ],
+              ],
+            ),
+          ],
           const SizedBox(height: 14),
           _Summary(account: account, editing: _editing),
           const SizedBox(height: 12),
@@ -155,6 +216,15 @@ class _AccountSlabState extends State<AccountSlab> {
               hint: 'you@example.com',
               mono: true,
             ),
+            if (_prefilled)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Text(
+                  'Filled in from GitHub. The noreply address always links '
+                  'commits to this account and keeps your real email private.',
+                  style: Glass.body(context, size: 12),
+                ),
+              ),
             _Field(
               controller: _sshKeyPath,
               label: 'SSH private key',
@@ -179,22 +249,35 @@ class _AccountSlabState extends State<AccountSlab> {
             ),
             const SizedBox(height: 4),
           ],
-          Row(
+          // Wraps rather than overflowing: an account can show five actions.
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               _QuietButton(
                 label: _editing ? 'Cancel' : 'Edit',
-                onPressed: () => setState(() => _editing = !_editing),
+                onPressed: _editing
+                    ? () => setState(() => _editing = false)
+                    : _startEditing,
               ),
-              const SizedBox(width: 8),
               _QuietButton(
                 label: 'Set for a repo',
                 icon: Icons.folder_outlined,
                 onPressed: () => widget.onApplyToRepo(account),
               ),
+              if (account.gitEmail.isEmpty &&
+                  !_editing &&
+                  widget.profile?.profile.noreplyEmail != null) ...[
+                _QuietButton(
+                  label: 'Fill from GitHub',
+                  icon: Icons.auto_fix_high_outlined,
+                  onPressed: _fillFromGitHub,
+                ),
+              ],
               if (account.sshKeyPath.isEmpty &&
                   !_editing &&
                   resolved.isLoggedIn) ...[
-                const SizedBox(width: 8),
                 _QuietButton(
                   label: _creating ? 'Creating…' : 'Create SSH key',
                   icon: Icons.vpn_key_outlined,
@@ -202,14 +285,12 @@ class _AccountSlabState extends State<AccountSlab> {
                 ),
               ],
               if (account.sshKeyPath.isNotEmpty && !_editing) ...[
-                const SizedBox(width: 8),
                 _QuietButton(
                   label: _testing ? 'Testing…' : 'Test SSH',
                   icon: Icons.key_outlined,
                   onPressed: _testing ? null : _handleTest,
                 ),
               ],
-              const Spacer(),
               if (_editing)
                 _AccentButton(
                   label: 'Save',

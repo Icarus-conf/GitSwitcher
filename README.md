@@ -50,8 +50,10 @@ button for each:
 - **git** opens Apple's Command Line Tools installer.
 
 Then press **+** in Settings to sign in to each account (or run
-`gh auth login`). Every account `gh` knows about gets a card. Fill in a label
-and your git name and email.
+`gh auth login`). Every account `gh` knows about gets a card. **Fill from
+GitHub** sets its commit name from the profile and its email to GitHub's
+private `…@users.noreply.github.com` address, which always links commits to
+that account. Or press **Edit** and type your own.
 
 For the SSH key, press **Create SSH key**: it makes a key for that account
 (`~/.ssh/gitswitcher_<login>`, no passphrase, so GUI git clients can use it)
@@ -83,6 +85,32 @@ key to GitHub as a *signing* key, or commits show as Unverified.
 
 **Test SSH** asks GitHub which account a key really signs in as, and warns if
 it's not the one you expect.
+
+**Identity by organization** does the same for every repo from a GitHub
+organization, wherever it's cloned — even `~/Downloads`. It matches the
+repo's remote URL (git 2.36 or later), and beats a folder rule.
+
+**Check repos** looks through your folders for repos that would commit as the
+wrong account — their own settings override the rule, or recent commits used
+another of your accounts' emails — and can remove such an override.
+
+**Clone** (the download button in Settings) clones `owner/repo` or a URL as an
+account you pick, into that account's folder. The clone uses that account
+from its first fetch, wherever it lives.
+
+**Account checks** run when Settings opens: a sign-in GitHub no longer
+accepts, an SSH key it rejects, or a sign-in that can't add keys each show on
+the card with a one-click fix.
+
+**Undo**: right after a switch, the menu offers to go back, and Settings
+lists this session's switches.
+
+**Export / Import** moves accounts and rules to another computer, Mac or
+Windows. Paths are saved relative to your home folder; SSH keys aren't
+included. Importing adds and updates, and never removes anything.
+
+**Updates**: when a newer release is out, the menu shows **Update to …**,
+which downloads it.
 
 **Add account** signs in to a new GitHub account without leaving the app.
 

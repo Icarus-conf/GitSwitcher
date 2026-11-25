@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -9,11 +11,14 @@ import '../app_services.dart';
 import '../platform/host.dart';
 import '../platform/launch_at_login.dart';
 import '../models/account.dart';
+import '../models/app_config.dart';
 import '../models/switch_result.dart';
 import '../services/account_resolver.dart';
+import '../services/gh_client.dart';
 import 'account_slab.dart';
 import 'add_account_dialog.dart';
 import 'auto_switch_section.dart';
+import 'clone_dialog.dart';
 import 'theme/glass.dart';
 import 'tray_controller.dart';
 import 'widgets/glass_slab.dart';
@@ -35,6 +40,12 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> with WindowListener {
   List<ResolvedAccount> _accounts = const [];
   bool _loading = true;
+
+  // Account health. Checked in the background after a reload, at most every
+  // few minutes, because the SSH check talks to GitHub once per key.
+  Map<String, AuthHealth> _health = const {};
+  Map<String, StepResult> _sshChecks = const {};
+  DateTime? _healthCheckedAt;
   StreamSubscription<void>? _profileSubscription;
   StreamSubscription<void>? _switchSubscription;
 
@@ -89,6 +100,100 @@ class _SettingsScreenState extends State<SettingsScreen> with WindowListener {
 
     unawaited(widget.services.profiles
         .refresh(resolved.map((r) => r.account.ghUsername)));
+    unawaited(_checkHealth());
+  }
+
+  Future<void> _checkHealth({bool force = false}) async {
+    final last = _healthCheckedAt;
+    if (!force &&
+        last != null &&
+        DateTime.now().difference(last) < const Duration(minutes: 5)) {
+      return;
+    }
+    _healthCheckedAt = DateTime.now();
+
+    final health = await widget.services.gh.authHealth();
+    final withKeys =
+        _accounts.map((r) => r.account).where((a) => a.sshKeyPath.isNotEmpty);
+    final checks = await Future.wait(withKeys.map((a) async =>
+        MapEntry(a.ghUsername, await widget.services.sshTester.test(a))));
+    if (!mounted) return;
+    setState(() {
+      _health = health;
+      _sshChecks = Map.fromEntries(checks);
+    });
+  }
+
+  /// What is wrong with [account] right now, each with its one-click fix.
+  List<AccountIssue> _issuesFor(Account account) {
+    final issues = <AccountIssue>[];
+    final health = _health[account.ghUsername];
+
+    if (health != null && !health.valid) {
+      issues.add(AccountIssue(
+        'GitHub no longer accepts this sign-in.',
+        fixLabel: 'Sign in again',
+        onFix: _addAccount,
+      ));
+    }
+
+    final ssh = _sshChecks[account.ghUsername];
+    final sshMessage = ssh?.message ?? '';
+    if (ssh?.status == StepStatus.failed) {
+      if (sshMessage.contains('signs in as')) {
+        issues.add(AccountIssue(
+          'This SSH key ${sshMessage.replaceFirst('this key ', '')}.',
+          fixLabel: 'Use a new key',
+          onFix: () => _createKey(account.copyWith(sshKeyPath: '')),
+        ));
+      } else if (sshMessage.contains('rejected')) {
+        issues.add(AccountIssue(
+          "GitHub doesn't accept this SSH key — it may have been removed.",
+          fixLabel: 'Add it again',
+          onFix: () => _uploadKey(account),
+        ));
+      }
+      // Anything else (offline, timed out) is not the account's fault.
+    }
+
+    if (health != null &&
+        health.valid &&
+        !health.canAddKeys &&
+        account.sshKeyPath.isEmpty) {
+      issues.add(AccountIssue(
+        'This sign-in cannot add SSH keys to GitHub yet.',
+        fixLabel: 'Allow',
+        onFix: () => _allowKeys(account),
+      ));
+    }
+    return issues;
+  }
+
+  Future<void> _allowKeys(Account account) async {
+    final ok = await AddAccountDialog.allowKeys(
+        context, widget.services, account.ghUsername);
+    if (!mounted) return;
+    _tell(ok
+        ? '${account.ghUsername} can now add SSH keys.'
+        : 'Permissions were not changed.', isError: !ok);
+    await _checkHealth(force: true);
+  }
+
+  Future<void> _uploadKey(Account account) async {
+    try {
+      final key = await widget.services.keys.upload(account);
+      if (key.uploaded) {
+        _tell('Key added to GitHub as ${account.ghUsername}.');
+      } else {
+        await Clipboard.setData(ClipboardData(text: key.publicKey));
+        await widget.services.keys.openAddKeyPage();
+        _tell('Key copied (${key.problem}). Paste it on the GitHub page, '
+            'signed in as ${account.ghUsername}.', isError: true);
+      }
+    } catch (error) {
+      _tell('Could not read the key: $error', isError: true);
+    }
+    await _checkHealth(force: true);
   }
 
   /// [message] replaces the usual "Saved" note, for callers with more to say.
@@ -189,6 +294,83 @@ class _SettingsScreenState extends State<SettingsScreen> with WindowListener {
     }
   }
 
+  Future<void> _exportSettings() async {
+    final location = await getSaveLocation(
+      suggestedName: 'gitswitcher-settings.json',
+      acceptedTypeGroups: const [XTypeGroup(label: 'JSON', extensions: ['json'])],
+    );
+    if (location == null) return;
+    try {
+      final config = (await widget.services.store.loadConfig())
+          .portable(Host.current.home);
+      await File(location.path).writeAsString(
+          const JsonEncoder.withIndent('  ').convert(config.toJson()));
+      if (mounted) {
+        _tell('Exported. SSH keys are not included — copy them or create new '
+            'ones on the other computer.');
+      }
+    } catch (error) {
+      if (mounted) _tell('Could not export: $error', isError: true);
+    }
+  }
+
+  Future<void> _importSettings() async {
+    final file = await openFile(
+      acceptedTypeGroups: const [XTypeGroup(label: 'JSON', extensions: ['json'])],
+    );
+    if (file == null) return;
+
+    final AppConfig imported;
+    try {
+      imported = AppConfig.fromJson(
+          jsonDecode(await file.readAsString()) as Map<String, dynamic>);
+    } catch (_) {
+      if (mounted) _tell('That file is not a GitSwitcher export.', isError: true);
+      return;
+    }
+    if (!mounted) return;
+
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Import settings?'),
+        content: Text(
+          'Adds or updates ${imported.accounts.length} accounts, '
+          '${imported.rules.length} folder rules and '
+          '${imported.orgRules.length} organization rules. Nothing you have '
+          'now is removed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Import'),
+          ),
+        ],
+      ),
+    );
+    if (proceed != true) return;
+
+    final current = await widget.services.store.loadConfig();
+    await widget.services.store.saveConfig(current.mergedWith(imported));
+    await widget.services.syncGitConfig();
+    await widget.tray.refreshMenu();
+    await _reload();
+    if (mounted) _tell('Settings imported.');
+  }
+
+  Future<void> _clone() async {
+    final path = await CloneDialog.show(
+      context,
+      widget.services,
+      _accounts.map((r) => r.account).toList(),
+    );
+    if (path != null && mounted) _tell('Cloned to $path');
+  }
+
   Future<void> _testSsh(Account account) async {
     final step = await widget.services.sshTester.test(account);
     if (!mounted) return;
@@ -230,10 +412,21 @@ class _SettingsScreenState extends State<SettingsScreen> with WindowListener {
                     const Spacer(),
                     _HeaderAction(
                       icon: Icons.refresh,
-                      tooltip: 'Reload from gh',
-                      onPressed: _reload,
+                      tooltip: 'Reload from gh and re-check accounts',
+                      onPressed: () async {
+                        _healthCheckedAt = null;
+                        await _reload();
+                      },
                     ),
                     const SizedBox(width: 6),
+                    if (_accounts.isNotEmpty) ...[
+                      _HeaderAction(
+                        icon: Icons.download_outlined,
+                        tooltip: 'Clone a repository as one of your accounts',
+                        onPressed: _clone,
+                      ),
+                      const SizedBox(width: 6),
+                    ],
                     _HeaderAction(
                       icon: Icons.add,
                       tooltip: 'Add a GitHub account',
@@ -297,7 +490,12 @@ class _SettingsScreenState extends State<SettingsScreen> with WindowListener {
             onApplyToRepo: _applyToRepo,
             onTestSsh: _testSsh,
             onCreateKey: _createKey,
+            issues: _issuesFor(_accounts[i].account),
           ),
+          const SizedBox(height: Glass.gutter),
+        ],
+        if (widget.tray.history.isNotEmpty) ...[
+          _RecentSwitches(tray: widget.tray),
           const SizedBox(height: Glass.gutter),
         ],
         const SizedBox(height: 10),
@@ -307,6 +505,31 @@ class _SettingsScreenState extends State<SettingsScreen> with WindowListener {
         ),
         _LaunchAtLoginSlab(
           onError: (message) => _tell(message, isError: true),
+        ),
+        const SizedBox(height: Glass.gutter),
+        GlassSlab(
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Another computer', style: Glass.display(context)),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Export accounts and rules to a file, then import it '
+                      'there — Mac or Windows. Keys are not included.',
+                      style: Glass.body(context, size: 12),
+                    ),
+                  ],
+                ),
+              ),
+              TextButton(
+                  onPressed: _exportSettings, child: const Text('Export…')),
+              TextButton(
+                  onPressed: _importSettings, child: const Text('Import…')),
+            ],
+          ),
         ),
         const SizedBox(height: Glass.gutter),
         AutoSwitchSection(
@@ -450,6 +673,45 @@ class _SetupSlabState extends State<_SetupSlab> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// This session's switches from the menu, newest first, with undo.
+class _RecentSwitches extends StatelessWidget {
+  const _RecentSwitches({required this.tray});
+
+  final TrayController tray;
+
+  @override
+  Widget build(BuildContext context) {
+    final history = tray.history.take(5).toList();
+    return GlassSlab(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('RECENT SWITCHES', style: Glass.eyebrow(context)),
+              const Spacer(),
+              if (history.first.fromLogin != null)
+                TextButton(
+                  onPressed: tray.undoLastSwitch,
+                  child: Text('Back to ${history.first.fromName}'),
+                ),
+            ],
+          ),
+          for (final record in history)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '${record.fromName ?? 'none'} → ${record.toName}  ·  '
+                '${timeAgo(record.at)}',
+                style: Glass.body(context, size: 12),
+              ),
+            ),
+        ],
       ),
     );
   }

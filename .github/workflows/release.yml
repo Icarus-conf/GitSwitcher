@@ -59,12 +59,14 @@ jobs:
         run: flutter test
 
       # The tag is the source of truth for the version, so the app reports the
-      # same number the release is published under.
+      # same number the release is published under. APP_VERSION is what the
+      # in-app update check compares against; builds without it never nag.
       - name: Build macOS release
         run: |
           flutter build macos --release \
             --build-name="${{ steps.version.outputs.build_name }}" \
-            --build-number="${{ github.run_number }}"
+            --build-number="${{ github.run_number }}" \
+            --dart-define=APP_VERSION="${{ steps.version.outputs.build_name }}"
 
       - name: Verify the bundle carries the tag's version
         run: |
@@ -168,7 +170,8 @@ jobs:
         run: |
           flutter build windows --release \
             --build-name="${{ steps.version.outputs.build_name }}" \
-            --build-number="${{ github.run_number }}"
+            --build-number="${{ github.run_number }}" \
+            --dart-define=APP_VERSION="${{ steps.version.outputs.build_name }}"
 
       - name: Package
         id: package

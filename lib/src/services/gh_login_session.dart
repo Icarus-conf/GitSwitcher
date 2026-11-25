@@ -14,9 +14,16 @@ class GhLoginSession {
     required ProcessStarter starter,
     required BinaryLocator locator,
     GhClient? gh,
+    this.refreshFor,
   })  : _starter = starter,
         _locator = locator,
         _gh = gh;
+
+  /// When set, adds [extraScopes] to this existing account's sign-in with
+  /// `gh auth refresh` instead of signing in. gh only refreshes the active
+  /// account, so it is made active for the flow and the previous one is put
+  /// back afterwards, whatever the outcome.
+  final String? refreshFor;
 
   final ProcessStarter _starter;
   final BinaryLocator _locator;
@@ -76,20 +83,32 @@ class GhLoginSession {
     // this now is the only chance to undo that.
     final previousActive = (await _gh?.discover())?.activeUsername;
 
-    final process = await _starter.start(gh, [
-      'auth',
-      'login',
-      '--hostname',
-      hostname,
-      '--git-protocol',
-      'https',
-      '--scopes',
-      extraScopes.join(','),
-      // Both flags exist to avoid prompts that would block forever without a
-      // terminal to answer them.
-      '--skip-ssh-key',
-      '--web',
-    ]);
+    final refreshing = refreshFor;
+    if (refreshing != null && refreshing != previousActive) {
+      await _gh?.switchTo(refreshing);
+    }
+
+    final process = await _starter.start(
+      gh,
+      refreshing != null
+          // Adds to the existing scopes; nothing the account had is lost.
+          ? ['auth', 'refresh', '--hostname', hostname, '--scopes',
+             extraScopes.join(',')]
+          : [
+              'auth',
+              'login',
+              '--hostname',
+              hostname,
+              '--git-protocol',
+              'https',
+              '--scopes',
+              extraScopes.join(','),
+              // Both flags exist to avoid prompts that would block forever
+              // without a terminal to answer them.
+              '--skip-ssh-key',
+              '--web',
+            ],
+    );
     _process = process;
 
     final drained = Completer<void>();
@@ -120,7 +139,7 @@ class GhLoginSession {
     _process = null;
 
     final succeeded = exitCode == 0;
-    if (!succeeded) await _restoreActive(previousActive);
+    if (!succeeded || refreshing != null) await _restoreActive(previousActive);
 
     return succeeded;
   }

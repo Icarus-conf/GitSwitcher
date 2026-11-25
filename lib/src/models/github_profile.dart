@@ -4,9 +4,18 @@ class GitHubProfile {
     required this.login,
     required this.name,
     required this.avatarUrl,
+    this.id,
   });
 
   final String login;
+
+  /// GitHub's numeric account id; never changes, even when the login does.
+  final int? id;
+
+  /// The address GitHub gives every account for commits: it always links the
+  /// commit to this account and keeps the real email private.
+  String? get noreplyEmail =>
+      id == null ? null : '$id+$login@users.noreply.github.com';
 
   /// GitHub allows an empty display name, so this is nullable.
   final String? name;
@@ -24,12 +33,14 @@ class GitHubProfile {
         login: json['login'] as String,
         name: json['name'] as String?,
         avatarUrl: json['avatar_url'] as String,
+        id: json['id'] as int?,
       );
 
   Map<String, dynamic> toJson() => {
         'login': login,
         'name': name,
         'avatar_url': avatarUrl,
+        'id': id,
       };
 
   @override
@@ -37,8 +48,9 @@ class GitHubProfile {
       other is GitHubProfile &&
       other.login == login &&
       other.name == name &&
-      other.avatarUrl == avatarUrl;
+      other.avatarUrl == avatarUrl &&
+      other.id == id;
 
   @override
-  int get hashCode => Object.hash(login, name, avatarUrl);
+  int get hashCode => Object.hash(login, name, avatarUrl, id);
 }

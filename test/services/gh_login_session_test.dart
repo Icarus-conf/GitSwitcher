@@ -183,9 +183,11 @@ github.com:
 ''');
     }
 
-    ({GhLoginSession session, FakeProcessRunner runner}) build({
+    ({GhLoginSession session, FakeProcessRunner runner, FakeProcessStarter starter})
+        build({
       required int exitCode,
       required String switchesTo,
+      String? refreshFor,
     }) {
       final runner = FakeProcessRunner();
       final locator = BinaryLocator(
@@ -193,15 +195,18 @@ github.com:
         searchDirs: const ['/opt/homebrew/bin'],
         exists: (p) => p == '/opt/homebrew/bin/gh',
       );
+      final starter = FakeProcessStarter(
+        exitCode: exitCode,
+        onStart: () => writeActive(switchesTo),
+      );
       return (
         runner: runner,
+        starter: starter,
         session: GhLoginSession(
           // gh flips the active account as soon as the login starts, whether
           // or not the user ever finishes it.
-          starter: FakeProcessStarter(
-            exitCode: exitCode,
-            onStart: () => writeActive(switchesTo),
-          ),
+          starter: starter,
+          refreshFor: refreshFor,
           locator: locator,
           gh: GhClient(
             runner: runner,
@@ -237,6 +242,24 @@ github.com:
         t.runner.calls.where((c) => c.contains('auth switch')),
         isEmpty,
         reason: 'a completed login should keep the account it signed in as',
+      );
+    });
+
+    test('a permission refresh runs as that account, then switches back',
+        () async {
+      writeActive('hubot');
+      // The fake runner does not edit hosts.yml, so stand in for the switch.
+      final t = build(exitCode: 0, switchesTo: 'octocat', refreshFor: 'octocat');
+
+      expect(await t.session.run(), isTrue);
+
+      expect(t.starter.startedWith, containsAllInOrder(['auth', 'refresh']));
+      expect(
+        t.runner.calls.where((c) => c.contains('auth switch')).toList(),
+        [
+          '/opt/homebrew/bin/gh auth switch --hostname github.com --user octocat',
+          '/opt/homebrew/bin/gh auth switch --hostname github.com --user hubot',
+        ],
       );
     });
 

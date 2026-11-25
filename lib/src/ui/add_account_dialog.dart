@@ -12,7 +12,15 @@ import 'widgets/glass_slab.dart';
 
 /// Runs `gh auth login` and shows the one-time code while it waits.
 class AddAccountDialog extends StatefulWidget {
-  const AddAccountDialog({super.key, required this.createSession});
+  const AddAccountDialog({
+    super.key,
+    required this.createSession,
+    this.eyebrow = 'ADD IDENTITY',
+  });
+
+  /// Small heading, so the same device-code flow can serve sign-in and
+  /// "give this account more permissions".
+  final String eyebrow;
 
   /// The dialog needs no more than this, which also lets tests drive the flow
   /// without a real gh process.
@@ -27,6 +35,24 @@ class AddAccountDialog extends StatefulWidget {
           AddAccountDialog(createSession: services.createLoginSession),
     );
     return added ?? false;
+  }
+
+  /// Lets [login]'s sign-in add SSH keys. Signed in to GitHub as [login] in
+  /// the browser, the user approves the extra permissions with the code.
+  static Future<bool> allowKeys(
+    BuildContext context,
+    AppServices services,
+    String login,
+  ) async {
+    final done = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AddAccountDialog(
+        createSession: () => services.createLoginSession(refreshFor: login),
+        eyebrow: 'ALLOW ADDING KEYS FOR $login'.toUpperCase(),
+      ),
+    );
+    return done ?? false;
   }
 
   @override
@@ -111,7 +137,7 @@ class _AddAccountDialogState extends State<AddAccountDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('ADD IDENTITY', style: Glass.eyebrow(context)),
+                Text(widget.eyebrow, style: Glass.eyebrow(context)),
                 const SizedBox(height: 10),
                 Text(
                   _code == null
