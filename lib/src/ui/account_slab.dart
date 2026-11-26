@@ -207,7 +207,7 @@ class _AccountSlabState extends State<AccountSlab> {
             _Field(
               controller: _gitName,
               label: 'Commit name',
-              hint: 'Muhammad Fathy',
+              hint: 'Ada Lovelace',
               mono: true,
             ),
             _Field(

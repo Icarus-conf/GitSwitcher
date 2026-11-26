@@ -10,7 +10,7 @@ import '../support/fake_process_runner.dart';
 
 void main() {
   const apiResponse =
-      '{"login":"hubot","name":"Muhammad Fathy",'
+      '{"login":"hubot","name":"Mona Lisa Octocat",'
       '"avatar_url":"https://avatars.githubusercontent.com/u/583231?v=4"}';
 
   ProfileClient buildClient(FakeProcessRunner runner, {bool ghExists = true}) {
@@ -36,7 +36,7 @@ void main() {
 
     expect(profile, isNotNull);
     expect(profile!.login, 'hubot');
-    expect(profile.name, 'Muhammad Fathy');
+    expect(profile.name, 'Mona Lisa Octocat');
     expect(profile.avatarUrl, contains('avatars.githubusercontent.com'));
   });
 

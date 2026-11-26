@@ -1,0 +1,53 @@
+name: Bug report
+description: Something doesn't work, or works differently than it says.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please **don't paste tokens or private keys**.
+        Remove anything secret from config snippets first.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [macOS, Windows]
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version
+      placeholder: macOS 26.1, Windows 11 24H2…
+  - type: input
+    id: app-version
+    attributes:
+      label: GitSwitcher version
+      description: From the release you downloaded, or the commit you built.
+      placeholder: v0.2.1
+    validations:
+      required: true
+  - type: textarea
+    id: tools
+    attributes:
+      label: gh and git versions
+      description: Output of `gh --version` and `git --version`.
+      render: text
+  - type: textarea
+    id: notification
+    attributes:
+      label: The switch notification, if any
+      description: It lists which steps ran, were skipped, or failed. That's often the quickest clue.
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant config (optional)
+      description: The GitSwitcher block from ~/.gitconfig or ~/.ssh/config, if it's about rules or keys.
+      render: ini
