@@ -22,3 +22,7 @@ updates:
       # Vendored and patched in third_party/; upgrade with
       # tool/vendor_tray_manager.sh instead.
       - dependency-name: tray_manager
+      # 0.7 needs Dart 3.14, newer than the Flutter version pinned in CI
+      # (test.yml, release.yml). Remove this when that pin moves up.
+      - dependency-name: window_manager
+        versions: [">=0.6.0"]
