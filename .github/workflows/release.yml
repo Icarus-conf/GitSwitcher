@@ -152,9 +152,9 @@ jobs:
 
   publish:
     needs: [macos, windows]
-    if: ${{ !inputs.dry_run }}
     # Publishing is a few API calls; any machine will do, and Linux ones are
-    # the most plentiful.
+    # the most plentiful. A dry run still runs this job up to the publish
+    # step, so checkout and download-artifact are exercised too.
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -169,7 +169,11 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: What would be published
+        run: ls -l dist && test "$(ls dist/*.zip | wc -l)" -eq 2
+
       - name: Publish
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
