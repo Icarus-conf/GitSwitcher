@@ -42,7 +42,7 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.CHECKOUT_REF }}
 
@@ -97,7 +97,7 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent "$APP" "dist/GitSwitcher-$TAG-macos.zip"
           ls -lh dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos
           path: dist/*.zip
@@ -112,7 +112,7 @@ jobs:
         shell: bash
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.CHECKOUT_REF }}
 
@@ -143,7 +143,7 @@ jobs:
           (cd stage && 7z a -tzip "../dist/GitSwitcher-$TAG-windows.zip" GitSwitcher > /dev/null)
           ls -lh dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: dist/*.zip
@@ -160,11 +160,11 @@ jobs:
 
     steps:
       # For the publish script and the release notes, so the tag's own copy.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.CHECKOUT_REF }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
