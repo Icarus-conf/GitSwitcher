@@ -1,5 +1,9 @@
 # GitSwitcher
 
+[![Test](https://github.com/Icarus-conf/GitSwitcher/actions/workflows/test.yml/badge.svg)](https://github.com/Icarus-conf/GitSwitcher/actions/workflows/test.yml)
+[![Latest release](https://img.shields.io/github/v/release/Icarus-conf/GitSwitcher)](https://github.com/Icarus-conf/GitSwitcher/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A menu bar (macOS) and system tray (Windows) app for switching between GitHub
 accounts.
 
@@ -149,3 +153,17 @@ flutter build windows --release    # on Windows
 `tray_manager` is vendored in `third_party/` with a small patch, because the
 published version ignores menu-item icons. Run `tool/vendor_tray_manager.sh` to
 upgrade it — see `third_party/README.md`.
+
+## Contributing
+
+Contributions are welcome: bug reports, Windows testing, and pull requests.
+Start with [CONTRIBUTING.md](CONTRIBUTING.md), which covers setup, how the code
+is laid out ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)), and the few rules
+the code follows. Please report security problems privately, as described in
+[SECURITY.md](SECURITY.md).
+
+## License
+
+[MIT](LICENSE). `third_party/tray_manager` is a patched copy of
+[tray_manager](https://pub.dev/packages/tray_manager), also MIT-licensed; see
+its own LICENSE.

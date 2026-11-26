@@ -7,7 +7,7 @@ void main() {
   const work = Account(
     ghUsername: 'octocat',
     label: 'Work',
-    gitName: 'Muhammad',
+    gitName: 'Mona',
     gitEmail: 'work@example.com',
   );
 
