@@ -1,8 +1,14 @@
-name: Release macOS build
+name: Release
 
 # Cutting a release is deliberate, so this runs on a version tag rather than on
-# every push to main. workflow_dispatch is there to re-run a build without
-# moving a tag.
+# every push to main. workflow_dispatch re-builds an existing tag, or with
+# dry_run builds the dispatched branch without publishing anything — the way
+# to try changes to this file.
+#
+# Shape: the two builds run in parallel and keep their zips as workflow
+# artifacts; a separate publish job uploads them. GitHub's release API fails
+# now and then (500/502/503), and when it does, re-running only the failed
+# publish job re-uploads the same zips in seconds instead of rebuilding both.
 on:
   push:
     tags:
@@ -12,29 +18,43 @@ on:
       tag:
         description: 'Tag to build and release (e.g. v0.1.0)'
         required: true
+      dry_run:
+        description: 'Build the dispatched branch, publish nothing'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
+env:
+  # Pinned: an unexpected Flutter upgrade should not silently change what
+  # ships. Keep in step with test.yml.
+  FLUTTER_VERSION: '3.41.2'
+  TAG: ${{ inputs.tag || github.ref_name }}
+  # A re-build of a tag builds that tag; a dry run builds the branch it was
+  # dispatched from. An empty ref means "whatever triggered this run".
+  CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run && inputs.tag || '' }}
+
 jobs:
-  build:
+  macos:
     runs-on: macos-latest
+    # GitHub's macOS machines are sometimes all busy; fail rather than hang.
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
 
       - uses: subosito/flutter-action@v2
         with:
-          # Pinned: an unexpected Flutter upgrade should not silently change
-          # what ships.
-          flutter-version: '3.41.2'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
 
       - name: Resolve version
         id: version
         run: |
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
           # pubspec's version is a placeholder; the tag is the real one. Strip
           # the leading v so it is a valid Dart build name.
           BUILD_NAME="${TAG#v}"
@@ -42,26 +62,18 @@ jobs:
             echo "::error::Tag '$TAG' is not vMAJOR.MINOR.PATCH"
             exit 1
           fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "build_name=$BUILD_NAME" >> "$GITHUB_OUTPUT"
-          echo "Building $TAG (version $BUILD_NAME)"
 
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Analyze
-        run: flutter analyze
+      - run: flutter pub get
+      - run: flutter analyze
 
       # A release that fails its own test suite should not exist. This also
-      # catches a vendored tray_manager that lost its patch, which otherwise
-      # ships silently as an app with no avatars.
-      - name: Test
-        run: flutter test
+      # catches a vendored tray_manager that lost its patch.
+      - run: flutter test
 
-      # The tag is the source of truth for the version, so the app reports the
-      # same number the release is published under. APP_VERSION is what the
-      # in-app update check compares against; builds without it never nag.
-      - name: Build macOS release
+      # APP_VERSION is what the in-app update check compares against; builds
+      # without it never nag.
+      - name: Build
         run: |
           flutter build macos --release \
             --build-name="${{ steps.version.outputs.build_name }}" \
@@ -77,115 +89,88 @@ jobs:
           [ "$GOT" = "$WANT" ] || { echo "::error::version mismatch"; exit 1; }
 
       - name: Package
-        id: package
         run: |
           APP="build/macos/Build/Products/Release/GitSwitcher.app"
-          test -d "$APP" || { echo "::error::$APP not found"; exit 1; }
-
-          NAME="GitSwitcher-${{ steps.version.outputs.tag }}-macos.zip"
+          mkdir -p dist
           # ditto, not zip: it preserves the bundle's symlinks and resource
           # forks, which a plain zip corrupts.
-          ditto -c -k --sequesterRsrc --keepParent "$APP" "$NAME"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "dist/GitSwitcher-$TAG-macos.zip"
+          ls -lh dist
 
-          echo "name=$NAME" >> "$GITHUB_OUTPUT"
-          echo "Packaged $NAME ($(du -h "$NAME" | cut -f1))"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
 
-      - name: Publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG="${{ steps.version.outputs.tag }}"
-          NAME="${{ steps.package.outputs.name }}"
-
-          NOTES=$(cat <<'EOF'
-          A menu bar app for switching GitHub accounts.
-
-          ## Install
-
-          1. Download the zip below and unzip it.
-          2. Move `GitSwitcher.app` to `/Applications`.
-          3. **Right-click the app and choose Open** the first time.
-
-          That third step is required because this build is not signed with an
-          Apple Developer certificate. Double-clicking shows a Gatekeeper
-          warning with no way past it; right-click → Open gives you the option
-          to run it anyway. macOS only asks once.
-
-          ## Install on Windows
-
-          1. Download the `-windows.zip` below and unzip it anywhere, for
-             example into `%LOCALAPPDATA%\Programs`.
-          2. Run `GitSwitcher\GitSwitcher.exe`.
-          3. If SmartScreen says "Windows protected your PC", choose
-             **More info → Run anyway**. The build is not code-signed, so
-             Windows asks once.
-
-          ## Requirements
-
-          The [GitHub CLI](https://cli.github.com), signed in to each account
-          you want to switch between (`gh auth login`).
-          EOF
-          )
-
-          # Re-running a build for an existing tag should update it, not fail.
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$NAME" --clobber
-          else
-            gh release create "$TAG" "$NAME" \
-              --title "GitSwitcher $TAG" \
-              --notes "$NOTES"
-          fi
-
-  # Runs after the macOS job, which creates the release, so the two never race
-  # to create it; this one only adds its zip.
   windows:
-    needs: build
     runs-on: windows-latest
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.41.2'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
 
-      - name: Resolve version
-        id: version
-        run: |
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "build_name=${TAG#v}" >> "$GITHUB_OUTPUT"
-
       - run: flutter pub get
+      - run: flutter test
 
-      - name: Test
-        run: flutter test
-
-      - name: Build Windows release
+      - name: Build
         run: |
+          BUILD_NAME="${TAG#v}"
           flutter build windows --release \
-            --build-name="${{ steps.version.outputs.build_name }}" \
+            --build-name="$BUILD_NAME" \
             --build-number="${{ github.run_number }}" \
-            --dart-define=APP_VERSION="${{ steps.version.outputs.build_name }}"
+            --dart-define=APP_VERSION="$BUILD_NAME"
 
       - name: Package
-        id: package
         run: |
           OUT="build/windows/x64/runner/Release"
           test -f "$OUT/GitSwitcher.exe" || { echo "::error::$OUT/GitSwitcher.exe not found"; exit 1; }
-          NAME="GitSwitcher-${{ steps.version.outputs.tag }}-windows.zip"
           # The exe needs the DLLs and data/ beside it, so the whole folder
           # ships, inside a GitSwitcher/ folder rather than loose in the zip.
-          mkdir -p dist && cp -R "$OUT" dist/GitSwitcher
-          (cd dist && 7z a -tzip "../$NAME" GitSwitcher > /dev/null)
-          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          mkdir -p stage dist && cp -R "$OUT" stage/GitSwitcher
+          (cd stage && 7z a -tzip "../dist/GitSwitcher-$TAG-windows.zip" GitSwitcher > /dev/null)
+          ls -lh dist
 
-      - name: Upload to the release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: [macos, windows]
+    if: ${{ !inputs.dry_run }}
+    # Publishing is a few API calls; any machine will do, and Linux ones are
+    # the most plentiful.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # For the publish script and the release notes, so the tag's own copy.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ steps.version.outputs.tag }}" "${{ steps.package.outputs.name }}" --clobber
+          GH_REPO: ${{ github.repository }}
+        run: tool/publish_release.sh "$TAG" dist/*.zip
